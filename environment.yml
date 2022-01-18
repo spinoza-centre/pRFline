@@ -149,7 +149,7 @@ dependencies:
     - click==8.0.3
     - cookiecutter==1.7.3
     - cryptography==36.0.0
-    - cython==0.29.25
+    - cython==0.29.26
     - debugpy==1.5.1
     - etelemetry==0.2.2
     - filelock==3.4.0
