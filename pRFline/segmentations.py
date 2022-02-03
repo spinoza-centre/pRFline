@@ -42,10 +42,20 @@ class Segmentations:
 
         Example
         ----------
+        >>> # load existing pickle file
         >>> from pRFline import segmentations
         >>> ff = "<some_path>/segmentations.pkl"
         >>> ref = "<some_path>/ref_slice.nii.gz"
         >>> segs = segmentations.Segmentations(<subject>, pickle_file=ff, reference_slice=ref)
+
+        >>> # create pickle file with segmentations for a  single subject
+        >>> from pRFline import segmentations
+        >>> from linescanning import utils
+        >>> ref = "<some_path>/ref_slice.nii.gz"
+        >>> to_ses = 3
+        >>> sub = "sub-003"
+        >>> trafo = utils.get_file_from_substring(f"{sub}_from-fs_to-{to_ses}", "derivatives/pycortex/<subject>/transforms")
+        >>> segs = segmentations.Segmentations(sub, reference_slice=ref, trafo_file=trafo, target_session=to_ses, foldover="FH")
 
         >>> # loop over a bunch of subjects
         >>> subject_list = ['sub-001','sub-003','sub-004','sub-005','sub-006']
@@ -57,6 +67,10 @@ class Segmentations:
         >>>     all_segmentations[ii] = segs.segmentations_df.copy
         >>> # plot all subjects
         >>> segmentations.plot_segmentations(all_segmentations, , max_val_ref=3000, figsize=(15,5*len(subject_list))))
+
+        Notes
+        ----------
+        Assumes your anatomical segmentation files have the *acq-MP2RAGE*-tag. This tag will be replaced by *1slice* in segmentation-to-slice images
         """
 
         self.subject            = subject
@@ -72,12 +86,15 @@ class Segmentations:
             # specify nighres directory
             self.nighres_dir        = opj(self.derivatives, 'derivatives', 'nighres', self.subject, f'ses-{self.reference_session}') 
             self.mask_dir           = opj(self.derivatives, 'derivatives', 'manual_masks', self.subject, f'ses-{self.reference_session}')
+            self.cortex_dir         = opj(self.derivatives, 'derivatives', 'pycortex', self.subject)
+
             # fetch segmentations, assuming default directory layout
             nighres_layout          = BIDSLayout(self.nighres_dir, validate=False).get(extension=['nii.gz'], return_type='file')
             self.wb_cruise          = utils.get_bids_file(nighres_layout, ["cortex"])
             self.wb_layers          = utils.get_bids_file(nighres_layout, ["layers"])
             self.wb_depth           = utils.get_bids_file(nighres_layout, ["depth"])
 
+            # fetch mask and tissue probabilities
             mask_layout             = BIDSLayout(self.nighres_dir, validate=False).get(extension=['nii.gz'], return_type='file')
             self.wb_wm              = utils.get_bids_file(mask_layout, ["label-WM"])
             self.wb_gm              = utils.get_bids_file(mask_layout, ["label-GM"])
@@ -88,9 +105,14 @@ class Segmentations:
             if not os.path.exists(self.reference_slice):
                 raise ValueError(f"Could not find reference slice {self.reference_slice}")
 
-            if not os.path.exists(self.trafo_file):
-                raise ValueError(f"Could not find trafo_file slice {self.trafo_file}")
-
+            if self.trafo_file == None:
+                # try the default in derivatives/pycortex/<subject>/transforms
+                self.trafo_file = utils.get_file_from_substring([f"from-fs_to-ses{to_ses}", ".mat"], opj(self.cortex_dir, 'transforms'), return_msg="None")
+                if self.trafo_file == None:
+                    raise ValueError(f"Could not find default trafo-file 'from-fs_to-ses{to_ses}*.mat' in {opj(self.cortex_dir, 'transforms')}")
+            elif not os.path.exists(self.trafo_file):
+                raise ValueError(f"Could not find trafo_file {self.trafo_file}")
+    
             # start warping (in brackets file suffixes)
             #  0 = wm prob  ("label-WM")
             #  1 = gm prob  ("label-GM")
