@@ -9,7 +9,7 @@ opj = os.path.join
 
 class Segmentations:
 
-    def __init__(self): #, subject, derivatives=None, trafo_file=None, reference_slice=None, reference_session=1, target_session=2, foldover="FH", pickle_file=None):
+    def __init__(self, subject, derivatives=None, trafo_file=None, reference_slice=None, reference_session=1, target_session=2, foldover="FH", pickle_file=None):
         """Segmentations
 
         Class to project segmentations created using the pipeline described on https://linescanning.readthedocs.io/en/latest/ to a single slice image of a new session (typically a line-scanning session). By default, it will look for files in the *Nighres*-directory, as these segmentations are generally of most interest. The output of the class will be a pickle-file containing the following segmentations: CRUISE-tissue segmentation (as per the output of https://github.com/gjheij/linescanning/blob/main/shell/spinoza_cortexreconstruction), the layer+depth segmentation (https://github.com/gjheij/linescanning/blob/main/shell/spinoza_layering), the brain mask, tissue probability maps (https://github.com/gjheij/linescanning/blob/main/shell/spinoza_extractregions), the reference slice, and the line as acquired in the session.
