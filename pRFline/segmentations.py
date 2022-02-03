@@ -50,11 +50,11 @@ class Segmentations:
 
         >>> # create pickle file with segmentations for a  single subject
         >>> from pRFline import segmentations
-        >>> from linescanning import utils
+        >>> import os
         >>> ref = "<some_path>/ref_slice.nii.gz"
         >>> to_ses = 3
         >>> sub = "sub-003"
-        >>> trafo = utils.get_file_from_substring(f"{sub}_from-fs_to-{to_ses}", "derivatives/pycortex/<subject>/transforms")
+        >>> derivatives = os.environ.get('DIR_DATA_DERIV')
         >>> segs = segmentations.Segmentations(sub, reference_slice=ref, trafo_file=trafo, target_session=to_ses, foldover="FH")
 
         >>> # loop over a bunch of subjects
@@ -74,19 +74,28 @@ class Segmentations:
         """
 
         self.subject            = subject
-        self.derivatives        = derivatives
+        self.project_home       = derivatives
         self.trafo_file         = trafo_file
         self.reference_slice    = reference_slice
         self.reference_session  = reference_session
         self.target_session     = target_session
         self.foldover           = foldover
         self.pickle_file        = pickle_file
+
     
         if self.pickle_file == None:
+
+            # try default project_home if none is specified
+            if self.project_home == None:
+                try:
+                    self.project_home = os.environ.get('DIR_DATA_HOME')
+                except Exception:
+                    print("Please specify the project's root directory (where 'derivatives' lives)")
+
             # specify nighres directory
-            self.nighres_dir        = opj(self.derivatives, 'derivatives', 'nighres', self.subject, f'ses-{self.reference_session}') 
-            self.mask_dir           = opj(self.derivatives, 'derivatives', 'manual_masks', self.subject, f'ses-{self.reference_session}')
-            self.cortex_dir         = opj(self.derivatives, 'derivatives', 'pycortex', self.subject)
+            self.nighres_dir        = opj(self.project_home, 'derivatives', 'nighres', self.subject, f'ses-{self.reference_session}') 
+            self.mask_dir           = opj(self.project_home, 'derivatives', 'manual_masks', self.subject, f'ses-{self.reference_session}')
+            self.cortex_dir         = opj(self.project_home, 'derivatives', 'pycortex', self.subject)
 
             # fetch segmentations, assuming default directory layout
             nighres_layout          = BIDSLayout(self.nighres_dir, validate=False).get(extension=['nii.gz'], return_type='file')
@@ -107,9 +116,9 @@ class Segmentations:
 
             if self.trafo_file == None:
                 # try the default in derivatives/pycortex/<subject>/transforms
-                self.trafo_file = utils.get_file_from_substring([f"from-fs_to-ses{to_ses}", ".mat"], opj(self.cortex_dir, 'transforms'), return_msg="None")
+                self.trafo_file = utils.get_file_from_substring([f"from-fs_to-ses{self.to_ses}", ".mat"], opj(self.cortex_dir, 'transforms'), return_msg="None")
                 if self.trafo_file == None:
-                    raise ValueError(f"Could not find default trafo-file 'from-fs_to-ses{to_ses}*.mat' in {opj(self.cortex_dir, 'transforms')}")
+                    raise ValueError(f"Could not find default trafo-file 'from-fs_to-ses{self.to_ses}*.mat' in {opj(self.cortex_dir, 'transforms')}")
             elif not os.path.exists(self.trafo_file):
                 raise ValueError(f"Could not find trafo_file {self.trafo_file}")
     
