@@ -93,18 +93,22 @@ class Segmentations:
                     print("Please specify the project's root directory (where 'derivatives' lives)")
 
             # specify nighres directory
-            self.nighres_dir        = opj(self.project_home, 'derivatives', 'nighres', self.subject, f'ses-{self.reference_session}') 
+            self.nighres_source     = opj(self.project_home, 'derivatives', 'nighres', self.subject, f'ses-{self.reference_session}') 
+            self.nighres_target     = opj(os.path.dirname(self.nighres_source), f'ses-{self.target_session}') 
             self.mask_dir           = opj(self.project_home, 'derivatives', 'manual_masks', self.subject, f'ses-{self.reference_session}')
             self.cortex_dir         = opj(self.project_home, 'derivatives', 'pycortex', self.subject)
 
+            if not os.path.exists(self.nighres_target):
+                os.makedirs(self.nighres_target, exist_ok=True)
+
             # fetch segmentations, assuming default directory layout
-            nighres_layout          = BIDSLayout(self.nighres_dir, validate=False).get(extension=['nii.gz'], return_type='file')
+            nighres_layout          = BIDSLayout(self.nighres_source, validate=False).get(extension=['nii.gz'], return_type='file')
             self.wb_cruise          = utils.get_bids_file(nighres_layout, ["cortex"])
             self.wb_layers          = utils.get_bids_file(nighres_layout, ["layers"])
             self.wb_depth           = utils.get_bids_file(nighres_layout, ["depth"])
 
             # fetch mask and tissue probabilities
-            mask_layout             = BIDSLayout(self.nighres_dir, validate=False).get(extension=['nii.gz'], return_type='file')
+            mask_layout             = BIDSLayout(self.mask_dir, validate=False).get(extension=['nii.gz'], return_type='file')
             self.wb_wm              = utils.get_bids_file(mask_layout, ["label-WM"])
             self.wb_gm              = utils.get_bids_file(mask_layout, ["label-GM"])
             self.wb_csf             = utils.get_bids_file(mask_layout, ["label-CSF"])
@@ -116,9 +120,9 @@ class Segmentations:
 
             if self.trafo_file == None:
                 # try the default in derivatives/pycortex/<subject>/transforms
-                self.trafo_file = utils.get_file_from_substring([f"from-fs_to-ses{self.to_ses}", ".mat"], opj(self.cortex_dir, 'transforms'), return_msg="None")
+                self.trafo_file = utils.get_file_from_substring([f"from-fs_to-ses{self.target_session}", ".mat"], opj(self.cortex_dir, 'transforms'), return_msg="None")
                 if self.trafo_file == None:
-                    raise ValueError(f"Could not find default trafo-file 'from-fs_to-ses{self.to_ses}*.mat' in {opj(self.cortex_dir, 'transforms')}")
+                    raise ValueError(f"Could not find default trafo-file 'from-fs_to-ses{self.target_session}*.mat' in {opj(self.cortex_dir, 'transforms')}")
             elif not os.path.exists(self.trafo_file):
                 raise ValueError(f"Could not find trafo_file {self.trafo_file}")
     
@@ -139,18 +143,18 @@ class Segmentations:
 
                 # replace acq-MP2RAGE with acq-1slice
                 new_fn = utils.replace_string(file, "acq-MP2RAGE", "acq-1slice")
-                new_file = opj(self.nighres_dir, os.path.basename(new_fn))
+                new_file = opj(self.nighres_target, os.path.basename(new_fn))
                 
                 if not os.path.exists(new_file):
                     if in_type[nr] == "tissue":
                         # Use MultiLabel-interpolation for tissue-segmentation
-                        transform.ants_applytrafo(self.reference_slice, file, interp="mul", trafo=self.transformation_file, output=new_file)
+                        transform.ants_applytrafo(self.reference_slice, file, interp="mul", trafo=self.trafo_file, output=new_file)
                     elif in_type[nr] == "layer":
                         # Use GenericLabel-interpolation for layer-segmentation
-                        transform.ants_applytrafo(self.reference_slice, file, interp="gen", trafo=self.transformation_file, output=new_file)
+                        transform.ants_applytrafo(self.reference_slice, file, interp="gen", trafo=self.trafo_file, output=new_file)
                     else:
                         # Use nearest neighbor-interpolation for probability maps
-                        transform.ants_applytrafo(self.reference_slice, file, interp="gen", trafo=self.transformation_file, output=new_file)
+                        transform.ants_applytrafo(self.reference_slice, file, interp="nn", trafo=self.trafo_file, output=new_file)
                 
                 # collect them in 'resampled' dictionary
                 self.resampled[tag[nr]] = new_file
@@ -159,7 +163,7 @@ class Segmentations:
             self.resampled['ref'] = self.reference_slice; self.resampled_data['ref'] = nb.load(self.reference_slice).get_fdata()
             self.resampled['line'] = image.create_line_from_slice(self.reference_slice, fold=self.foldover); self.resampled_data['line'] = nb.load(self.reference_slice).get_fdata()
 
-            pickle_file = open(opj(self.nighres_dir, f'{subject}_space-ses{self.to_ses}_desc-segmentations.pkl'), "wb")
+            pickle_file = open(opj(self.nighres_target, f'{subject}_ses-{self.target_session}_desc-segmentations.pkl'), "wb")
             pickle.dump(self.resampled, pickle_file)
             pickle_file.close()
 
