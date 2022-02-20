@@ -47,6 +47,7 @@ def main(argv):
     try:
         opts = getopt.getopt(argv,"gvh:n:f:d:o:l:",["func_dir=", "output_dir=", "log_dir="])[0]
     except getopt.GetoptError:
+        print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
         sys.exit(2)
 
@@ -63,7 +64,7 @@ def main(argv):
         elif opt in ("-v"):
             verbose = True
         elif opt in ("-g"):
-            model = "gauss"       
+            model = "gauss"     
 
     # this is a bit more informative than if len(argv) < 8..
     if func_dir == None:

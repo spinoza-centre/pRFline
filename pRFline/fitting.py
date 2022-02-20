@@ -83,7 +83,7 @@ class FitPartialFOV:
     def fit(self):
         
         if self.verbose:
-            print(f"Running fit")
+            print(f"Running fit with {self.model}-model")
 
         fitter = prf.pRFmodelFitting(self.data.T, 
                                      design_matrix=self.design, 
