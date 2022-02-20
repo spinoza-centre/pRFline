@@ -64,18 +64,32 @@ def main(argv):
         print(main.__doc__)
         sys.exit()
 
-    func_files = get_file_from_substring(["acq-3DEPI", "bold.nii.gz"], func_dir)
+    # fetch func files, phase files, transformation file mapping ses-1 to ses-X, and reference image (orig.nii.gzs)
+    func_files  = get_file_from_substring(["acq-3DEPI", "bold.nii.gz"], func_dir)
     phase_files = get_file_from_substring(["acq-3DEPI", "bold_ph.nii.gz"], func_dir)
-    trafo = get_file_from_substring(f"from-fs_to-ses{session}_", opj(derivatives, 'pycortex', subject, 'transforms'))
-    ref_img = opj(derivatives, 'freesurfer', subject, 'mri', 'orig.nii.gz')
+    trafo       = get_file_from_substring(f"from-fs_to-ses{session}_", opj(derivatives, 'pycortex', subject, 'transforms'))
+    ref_img     = opj(derivatives, 'freesurfer', subject, 'mri', 'orig.nii.gz')
 
+    # loop through files if input is list
     if isinstance(func_files, list):
         for func in func_files:
             print(f"Preprocessing {func}")
-            utils.preprocess_func(func, subject=subject, phase=phase_files, trafo=trafo, reference=ref_img, outputdir=output_dir)
+            utils.preprocess_func(func, 
+                                  subject=subject, 
+                                  phase=phase_files, 
+                                  trafo=trafo, 
+                                  reference=ref_img, 
+                                  outputdir=output_dir)
+    # input is single file
     elif isinstance(func_files, str):
         print(f"Preprocessing {func_files}")
-        utils.preprocess_func(func_files, subject=subject, phase=phase_files, trafo=trafo, reference=ref_img, outputdir=output_dir)
+        utils.preprocess_func(func_files, 
+                              subject=subject, 
+                              phase=phase_files, 
+                              trafo=trafo, 
+                              reference=ref_img, 
+                              outputdir=output_dir)
+    # unknown input
     else:
         raise ValueError(f"Unrecognized input type for {func_files}. Must be list of strings or single string")
 

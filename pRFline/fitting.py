@@ -4,12 +4,47 @@ from nipype.interfaces import fsl, ants, freesurfer
 opj = os.path.join
 
 class FitPartialFOV:
+    """FitPartialFOV
 
-    def __init__(self, subject, func_files=None, trafo_file=None, TR=1.111, log_dir=None, output_base=None, output_dir=None, verbose=False, **kwargs):
+    Fitting object for partial FOV data that has been preprocessed with https://github.com/spinoza-centre/pRFline/blob/main/scripts/partial_preprocess.py. This workflow results in a numpy-file ending with `hemi-LR_space-fsnative_bold.npy`, which is a format compatible with https://github.com/gjheij/linescanning/blob/main/linescanning/dataset.py#L1170. This class creates the design matrix for the run given a log-directory, applies a high-pass filter to remove low-frequency drifts, and performs the fitting
 
+    Parameters
+    ----------
+    func_files: str, optional
+        String representing the functional file that was preprocessed by `partial_preprocessing.py`, by default None
+    TR: float, optional
+        Repetition time of partial FOV acquisition, by default 1.111
+    log_dir: str, optional
+        Path-like representation pointing to the log-directory in which a directory with `Screenshots` lives, by default None. See https://github.com/gjheij/linescanning/blob/main/linescanning/prf.py#L756 for more details on the creation of the design matrix
+    output_base: str, optional
+        Basename for output, by default None. If none, it will try to derive a base name using BIDS-components from `func_files`. If this is not possible, an error will be thrown with a request to specify a output basename or format your input files according to BIDS
+    output_dir: str, optional
+        Path to the output directory, by default None. If None, the output will be stored in the directory in which `func_files` lives
+    verbose: bool, optional
+        Turn on messages, by default False
 
-        self.subject            = subject
-        self.trafo_file         = trafo_file
+    Raises
+    ----------
+    ValueError
+        If no output basename was specified, and the input file is not formatted according to BIDS
+    ValueError
+        If the **first** dimension of the functional data does not match the **last** dimension of the design matrix (time)
+
+    Example
+    ----------
+    >>> func_files = get_file_from_substring(["hemi-LR", "bold.npy"], func_dir)
+    >>> model_fit = fitting.FitPartialFOV(func_files=func_files,
+    >>>                                   output_dir=output_dir,
+    >>>                                   TR=1.111,
+    >>>                                   log_dir=log_dir,
+    >>>                                   stage='grid+iter',
+    >>>                                   model=model,
+    >>>                                   verbose=verbose)
+    >>> model_fit.fit()
+    """
+
+    def __init__(self, func_files, TR=1.111, log_dir=None, output_base=None, output_dir=None, verbose=False, **kwargs):
+
         self.func_files         = func_files
         self.verbose            = False
         self.TR                 = TR

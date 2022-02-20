@@ -134,5 +134,3 @@ def preprocess_func(func, subject=None, phase=None, trafo=None, reference=None, 
 
     cmd = f"call_stackgifti {files[0]} {files[1]} {final}"
     os.system(cmd)
-
-    # project to surface
