@@ -16,6 +16,7 @@ def main(argv):
     Parameters
     ----------
     -s <subject>        subject ID as used throughout the pipeline.
+    -n <session>        session ID
     -f <func_dir>       path to where the functional files live. We'll search for the "acq-3DEPI" 
                         tag. If multiple files are found, we'll run preprocessing for them all.
     -d <derivatives>    path pointing to the derivatives folder including 'freesurfer' and 'pycortex'
@@ -29,7 +30,7 @@ def main(argv):
 
     Example
     ----------
-    python partial_preprocess.py -s sub-003 -f /mnt/export/data1/projects/MicroFunc/Jurjen/projects/hemifield/testing/preprocess_func -o /mnt/export/data1/projects/MicroFunc/Jurjen/projects/hemifield/testing/preprocess_func -n 3
+    python partial_preprocess.py -s sub-003 -n 3 -f /mnt/export/data1/projects/MicroFunc/Jurjen/projects/hemifield/testing/preprocess_func -o /mnt/export/data1/projects/MicroFunc/Jurjen/projects/hemifield/testing/preprocess_func
     """
 
     subject     = None
