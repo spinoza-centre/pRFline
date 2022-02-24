@@ -93,7 +93,7 @@ def preprocess_func(func, subject=None, phase=None, trafo=None, reference=None, 
         outputdir = os.path.dirname(func)
 
     comps = utils.split_bids_components(func)
-    fbase = f"sub-{comps['sub']}_ses-{comps['ses']}_task-{comps['task']}_acq-{comps['acq']}_run-{comps['run']}"
+    fbase = f"sub-{comps['sub']}_ses-{comps['ses']}_task-{comps['task']}_run-{comps['run']}_acq-{comps['acq']}"
 
     # nordic 
     nord_file = opj(outputdir, fbase+"_bold_nordic.nii.gz")
