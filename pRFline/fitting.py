@@ -134,7 +134,7 @@ class FitPartialFOV:
         if self.verbose:
             print(f"Func data has shape: {self.data.shape}")
 
-class FitLines:
+class FitLines(dataset.Dataset):
     """FitLines
 
     Fitting object for line-data that has been reconstructed with https://github.com/gjheij/linescanning/blob/main/bin/call_linerecon (includes NORDIC). This workflow results in *mat-files, which is a format compatible with https://github.com/gjheij/linescanning/blob/main/linescanning/dataset.py#L1170. This class creates the design matrix for the run given a log-directory, applies low/high pass filtering, and fits the pRFs to the data. We'll average runs and iterations.
@@ -198,6 +198,7 @@ class FitLines:
                  n_iterations=3,
                  strip_baseline=True, 
                  ribbon=None,
+                 fmri_output="filt+psc",
                  **kwargs):
 
         self.func_files         = func_files
@@ -214,6 +215,7 @@ class FitLines:
         self.n_iterations       = n_iterations
         self.strip_baseline     = strip_baseline
         self.ribbon             = ribbon
+        self.fmri_output        = fmri_output
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -240,13 +242,7 @@ class FitLines:
         self.average_iterations(**kwargs)
 
         # fetch design
-        self.prepare_design()
-
-        if self.verbose:
-            if self.design.shape[-1] == self.avg_iters_no_baseline.shape[0]:
-                print("Shapes of design matrix and functional data match. Ready for fit!")
-            else:
-                raise ValueError(f"Shapes of functional data ({self.avg_iters_no_baseline.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")
+        # self.prepare_design()
 
     def fit(self):
         
@@ -281,15 +277,19 @@ class FitLines:
         if self.verbose:
             print(f"Design matrix has shape: {self.design.shape}")
 
+        if self.verbose:
+            if self.design.shape[-1] == self.avg_iters_no_baseline.shape[0]:
+                print("Shapes of design matrix and functional data match. Ready for fit!")
+            else:
+                raise ValueError(f"Shapes of functional data ({self.avg_iters_no_baseline.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
+
     def prepare_func(self, **kwargs):
 
-        if self.verbose:
-            print(f"Received {self.func_files}")
-
-        self.func = dataset.Dataset(self.func_files, verbose=self.verbose, **kwargs)
+        super().__init__(self.func_files, verbose=self.verbose, **kwargs)
+        # self.func = dataset.Dataset(self.func_files, verbose=self.verbose, **kwargs)
 
         # fetch data and filter out NaNs
-        self.data = self.func.fetch_fmri()
+        self.data = self.fetch_fmri(type=self.fmri_output)
         self.avg = self.data.groupby(['subject', 't']).mean()
 
         if self.ribbon != None:
