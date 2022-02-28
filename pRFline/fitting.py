@@ -249,7 +249,7 @@ class FitLines(dataset.Dataset):
         if self.verbose:
             print(f"Running fit with {self.model}-model")
 
-        fitter = prf.pRFmodelFitting(self.avg_iters_no_baseline.T, 
+        fitter = prf.pRFmodelFitting(self.avg_runs_iterations.T, 
                                      design_matrix=self.design, 
                                      TR=self.TR, 
                                      model=self.model, 
@@ -268,7 +268,7 @@ class FitLines(dataset.Dataset):
 
         self.design = prf.create_line_prf_matrix(self.log_dir, 
                                                  stim_duration=0.25,
-                                                 nr_trs=self.avg_iters_baseline.shape[0],
+                                                 nr_trs=self.avg_runs_iterations.shape[0],
                                                  TR=0.105)
 
         if self.strip_baseline:
@@ -278,10 +278,10 @@ class FitLines(dataset.Dataset):
             print(f"Design matrix has shape: {self.design.shape}")
 
         if self.verbose:
-            if self.design.shape[-1] == self.avg_iters_no_baseline.shape[0]:
+            if self.design.shape[-1] == self.avg_runs_iterations.shape[0]:
                 print("Shapes of design matrix and functional data match. Ready for fit!")
             else:
-                raise ValueError(f"Shapes of functional data ({self.avg_iters_no_baseline.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
+                raise ValueError(f"Shapes of functional data ({self.avg_runs_iterations.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
 
     def prepare_func(self, **kwargs):
 
@@ -326,9 +326,11 @@ class FitLines(dataset.Dataset):
             iter_chunks.append(chunk[...,np.newaxis])
             start += iter_size
 
-        self.avg_iters_baseline     = np.concatenate((self.baseline, np.concatenate(iter_chunks, axis=-1).mean(axis=-1)))
-        self.avg_iters_no_baseline  = np.concatenate(iter_chunks, axis=-1).mean(axis=-1)  
+        if self.strip_baseline:
+            self.avg_runs_iterations = np.concatenate(iter_chunks, axis=-1).mean(axis=-1)
+        else:
+            self.avg_runs_iterations     = np.concatenate((self.baseline, np.concatenate(iter_chunks, axis=-1).mean(axis=-1)))
         
         if self.verbose:
-            print(f"Func data has shape: {self.avg_iters_no_baseline.shape}")      
+            print(f"Func data has shape: {self.avg_runs_iterations.shape}")      
 
