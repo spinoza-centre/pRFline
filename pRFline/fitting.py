@@ -245,11 +245,14 @@ class FitLines(dataset.Dataset):
         # self.prepare_design()
 
     def fit(self):
+    
+        if not hasattr(self, "design"):
+            self.prepare_design()
         
         if self.verbose:
             print(f"Running fit with {self.model}-model")
 
-        fitter = prf.pRFmodelFitting(self.avg_runs_iterations.T, 
+        fitter = prf.pRFmodelFitting(self.avg_iters_no_baseline.T,
                                      design_matrix=self.design, 
                                      TR=self.TR, 
                                      model=self.model, 
@@ -268,7 +271,7 @@ class FitLines(dataset.Dataset):
 
         self.design = prf.create_line_prf_matrix(self.log_dir, 
                                                  stim_duration=0.25,
-                                                 nr_trs=self.avg_runs_iterations.shape[0],
+                                                 nr_trs=self.avg_iters_baseline.shape[0],
                                                  TR=0.105)
 
         if self.strip_baseline:
@@ -278,10 +281,11 @@ class FitLines(dataset.Dataset):
             print(f"Design matrix has shape: {self.design.shape}")
 
         if self.verbose:
-            if self.design.shape[-1] == self.avg_runs_iterations.shape[0]:
+            if self.design.shape[-1] == self.avg_iters_no_baseline.shape[0]:
                 print("Shapes of design matrix and functional data match. Ready for fit!")
             else:
-                raise ValueError(f"Shapes of functional data ({self.avg_runs_iterations.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
+                raise ValueError(f"Shapes of functional data ({self.avg_iters_no_baseline.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
+
 
     def prepare_func(self, **kwargs):
 
@@ -290,7 +294,7 @@ class FitLines(dataset.Dataset):
 
         # fetch data and filter out NaNs
         self.data = self.fetch_fmri(type=self.fmri_output)
-        self.avg = self.data.groupby(['subject', 't']).mean()
+        self.avg = self.data.groupby(['subject', 't']).median()
 
         if self.ribbon != None:
             if self.verbose:
@@ -308,8 +312,16 @@ class FitLines(dataset.Dataset):
         else:
             use_data = self.avg.copy()
 
+
+        if not hasattr(self, "deleted_first_timepoints"):
+            start = int(round(self.baseline_duration/self.TR, 0))
+        else:
+            start = int(round(self.baseline_duration/self.TR, 0)) - int(round(self.deleted_first_timepoints*self.TR, 0))
+
+        if self.verbose:
+            print(f"Start after {start} volumes (~{round(start*self.TR,2)}s)")
+
         iter_chunks      = []
-        start            = int(round(self.baseline_duration/self.TR, 0))
         iter_size        = int(round(self.iter_duration/self.TR, 0))
         self.baseline    = use_data[:start]
         for ii in range(self.n_iterations):
@@ -326,11 +338,9 @@ class FitLines(dataset.Dataset):
             iter_chunks.append(chunk[...,np.newaxis])
             start += iter_size
 
-        if self.strip_baseline:
-            self.avg_runs_iterations = np.concatenate(iter_chunks, axis=-1).mean(axis=-1)
-        else:
-            self.avg_runs_iterations     = np.concatenate((self.baseline, np.concatenate(iter_chunks, axis=-1).mean(axis=-1)))
+        self.avg_iters_baseline     = np.concatenate((self.baseline, np.concatenate(iter_chunks, axis=-1).mean(axis=-1)))
+        self.avg_iters_no_baseline  = np.concatenate(iter_chunks, axis=-1).mean(axis=-1)
         
         if self.verbose:
-            print(f"Func data has shape: {self.avg_runs_iterations.shape}")      
+            print(f"Func data has shape: {self.avg_iters_no_baseline.shape}")
 
