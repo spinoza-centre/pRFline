@@ -134,7 +134,7 @@ class FitPartialFOV:
         if self.verbose:
             print(f"Func data has shape: {self.data.shape}")
 
-class FitLines(dataset.Dataset):
+class FitLines(dataset.Dataset, pRFline.segmentations):
     """FitLines
 
     Fitting object for line-data that has been reconstructed with https://github.com/gjheij/linescanning/blob/main/bin/call_linerecon (includes NORDIC). This workflow results in *mat-files, which is a format compatible with https://github.com/gjheij/linescanning/blob/main/linescanning/dataset.py#L1170. This class creates the design matrix for the run given a log-directory, applies low/high pass filtering, and fits the pRFs to the data. We'll average runs and iterations.
@@ -252,17 +252,17 @@ class FitLines(dataset.Dataset):
         if self.verbose:
             print(f"Running fit with {self.model}-model")
 
-        fitter = prf.pRFmodelFitting(self.avg_iters_no_baseline.T,
-                                     design_matrix=self.design, 
-                                     TR=self.TR, 
-                                     model=self.model, 
-                                     stage=self.stage, 
-                                     verbose=self.verbose,
-                                     output_dir=self.output_dir,
-                                     output_base=self.output_base,
-                                     write_files=True)
+        self.fitter = prf.pRFmodelFitting(self.avg_iters_no_baseline.T,
+                                          design_matrix=self.design, 
+                                          TR=self.TR, 
+                                          model=self.model, 
+                                          stage=self.stage, 
+                                          verbose=self.verbose,
+                                          output_dir=self.output_dir,
+                                          output_base=self.output_base,
+                                          write_files=True)
 
-        fitter.fit()
+        self.fitter.fit()
 
     def prepare_design(self):
 
