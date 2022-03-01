@@ -134,7 +134,7 @@ class FitPartialFOV:
         if self.verbose:
             print(f"Func data has shape: {self.data.shape}")
 
-class FitLines(dataset.Dataset, pRFline.segmentations):
+class FitLines(dataset.Dataset):
     """FitLines
 
     Fitting object for line-data that has been reconstructed with https://github.com/gjheij/linescanning/blob/main/bin/call_linerecon (includes NORDIC). This workflow results in *mat-files, which is a format compatible with https://github.com/gjheij/linescanning/blob/main/linescanning/dataset.py#L1170. This class creates the design matrix for the run given a log-directory, applies low/high pass filtering, and fits the pRFs to the data. We'll average runs and iterations.
