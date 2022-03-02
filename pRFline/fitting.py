@@ -198,7 +198,7 @@ class FitLines(dataset.Dataset):
                  n_iterations=3,
                  strip_baseline=True, 
                  ribbon=None,
-                 fmri_output="filt+psc",
+                 fmri_output="psc",
                  **kwargs):
 
         self.func_files         = func_files
@@ -293,14 +293,16 @@ class FitLines(dataset.Dataset):
         # self.func = dataset.Dataset(self.func_files, verbose=self.verbose, **kwargs)
 
         # fetch data and filter out NaNs
-        self.data = self.fetch_fmri(type=self.fmri_output)
+        self.data = self.fetch_fmri(dtype=self.fmri_output)
         self.avg = self.data.groupby(['subject', 't']).median()
 
         if self.ribbon != None:
+            self.ribbon_idc = list(np.arange(*self.ribbon))
+
             if self.verbose:
                 print(f"Selecting GM-voxels: {self.ribbon}")
 
-            self.df_ribbon = utils.select_from_df(self.avg, expression='ribbon', indices=self.ribbon)
+            self.df_ribbon = utils.select_from_df(self.avg, expression='ribbon', indices=self.ribbon_idc)
 
     def average_iterations(self, **kwargs):
 
