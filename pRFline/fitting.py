@@ -237,6 +237,9 @@ class FitLines(dataset.Dataset):
 
         if self.log_dir == None:
             raise ValueError(f"Please specify a log-directory..")
+        
+        # fetch data
+        self.prepare_func(**kwargs)
 
         # fetch data
         self.average_iterations(**kwargs)
@@ -272,7 +275,8 @@ class FitLines(dataset.Dataset):
         self.design = prf.create_line_prf_matrix(self.log_dir, 
                                                  stim_duration=0.25,
                                                  nr_trs=self.avg_iters_baseline.shape[0],
-                                                 TR=0.105)
+                                                 TR=0.105,
+                                                 verbose=self.verbose)
 
         if self.strip_baseline:
             self.design = self.design[...,self.baseline.shape[0]:]
@@ -294,7 +298,7 @@ class FitLines(dataset.Dataset):
 
         # fetch data and filter out NaNs
         self.data = self.fetch_fmri(dtype=self.fmri_output)
-        self.avg = self.data.groupby(['subject', 't']).median()
+        self.avg = self.data.groupby(['subject', 't']).mean()
 
         if self.ribbon != None:
             self.ribbon_idc = list(np.arange(*self.ribbon))
@@ -306,6 +310,9 @@ class FitLines(dataset.Dataset):
 
     def average_iterations(self, **kwargs):
 
+        if self.verbose:
+            print("Chunking/averaging iterations")
+
         if not hasattr(self, 'avg'):
             self.prepare_func(**kwargs)
 
@@ -314,17 +321,19 @@ class FitLines(dataset.Dataset):
         else:
             use_data = self.avg.copy()
 
-
         if not hasattr(self, "deleted_first_timepoints"):
             start = int(round(self.baseline_duration/self.TR, 0))
         else:
             start = int(round(self.baseline_duration/self.TR, 0)) - int(round(self.deleted_first_timepoints*self.TR, 0))
 
-        if self.verbose:
-            print(f"Start after {start} volumes (~{round(start*self.TR,2)}s)")
 
-        iter_chunks      = []
+        self.iter_chunks = []
         iter_size        = int(round(self.iter_duration/self.TR, 0))
+        
+        if self.verbose:
+            print(f" Baseline \t = {start} vols (~{round(start*self.TR,2)}s) based on TR of {self.TR}s ({self.baseline_duration}s was specified/requested)")
+            print(f" 1 iteration \t = {iter_size} vols (~{round(iter_size*self.TR,2)}s) based on TR of {self.TR}s ({self.iter_duration}s was specified/requested)")
+            
         self.baseline    = use_data[:start]
         for ii in range(self.n_iterations):
 
@@ -337,12 +346,12 @@ class FitLines(dataset.Dataset):
                 padded_array[:chunk.shape[0]] = chunk
                 chunk = padded_array.copy()
 
-            iter_chunks.append(chunk[...,np.newaxis])
+            self.iter_chunks.append(chunk[...,np.newaxis])
             start += iter_size
 
-        self.avg_iters_baseline     = np.concatenate((self.baseline, np.concatenate(iter_chunks, axis=-1).mean(axis=-1)))
-        self.avg_iters_no_baseline  = np.concatenate(iter_chunks, axis=-1).mean(axis=-1)
+        self.avg_iters_baseline     = np.concatenate((self.baseline, np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)))
+        self.avg_iters_no_baseline  = np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)
         
         if self.verbose:
-            print(f"Func data has shape: {self.avg_iters_no_baseline.shape}")
+            print(f" With baseline: {self.avg_iters_baseline.shape} | No baseline: {self.avg_iters_no_baseline.shape}")
 
