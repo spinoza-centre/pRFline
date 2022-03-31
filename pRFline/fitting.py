@@ -261,24 +261,29 @@ class FitLines(dataset.Dataset):
                 print("Using data WITH baseline for fitting")
             self.data_for_fitter = self.avg_iters_baseline.copy()
 
+        data_fname = opj(self.output_dir, self.output_base+'_desc-data.npy')
+        if self.verbose:
+            print(f"Saving data as {data_fname}")
+        np.save(data_fname, self.data_for_fitter)
+        
         if not hasattr(self, "design"):
             self.prepare_design()
         
         if self.verbose:
             print(f"Running fit with {self.model}-model")
 
-        # self.fitter = prf.pRFmodelFitting(self.data_for_fitter.T,
-        #                                   design_matrix=self.design, 
-        #                                   TR=self.TR, 
-        #                                   model=self.model, 
-        #                                   stage=self.stage, 
-        #                                   verbose=self.verbose,
-        #                                   output_dir=self.output_dir,
-        #                                   output_base=self.output_base,
-        #                                   write_files=True,
-        #                                   **kwargs)
+        self.fitter = prf.pRFmodelFitting(self.data_for_fitter.T,
+                                          design_matrix=self.design, 
+                                          TR=self.TR, 
+                                          model=self.model, 
+                                          stage=self.stage, 
+                                          verbose=self.verbose,
+                                          output_dir=self.output_dir,
+                                          output_base=self.output_base,
+                                          write_files=True,
+                                          **kwargs)
 
-        # self.fitter.fit()
+        self.fitter.fit()
 
     def prepare_design(self):
 
