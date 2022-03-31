@@ -1,7 +1,27 @@
 from linescanning import utils, prf
 import os
 from nipype.interfaces import fsl, ants, freesurfer
-opj = os.path.join    
+opj = os.path.join
+
+def split_params_file(file):
+
+    comp_list = fname.split('_')
+    comps = {}
+    
+    ids = ['sub', 'ses', 'run', 'model', 'stage']
+    for el in comp_list:
+        for i in ids:
+            if i in el:
+                comp = el.split('-')[-1]
+                if i == "run":
+                    comp = int(comp)
+
+                comps[i] = comp
+
+    if len(comps) != 0:
+        return comps
+    else:
+        print(f"Could not find any element of {ids} in {fname}")
     
 def mcflirt(func):
 
