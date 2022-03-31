@@ -181,7 +181,8 @@ def main(argv):
                                  output_dir=os.path.dirname(output_dir),
                                  output_base=output_base_prf,
                                  save_as=opj(anat_dir, os.path.basename(output_dir)),
-                                 voxel_cutoff=0)
+                                 voxel_cutoff=300,
+                                 window_size=19)
 
     # fit
     model_fit.fit()
