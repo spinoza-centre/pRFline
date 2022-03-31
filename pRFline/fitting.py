@@ -2,6 +2,8 @@ from linescanning import utils, prf, dataset
 from pRFline.utils import split_params_file
 import os
 import numpy as np
+from scipy import io
+
 opj = os.path.join
 
 class FitPartialFOV:
@@ -219,7 +221,6 @@ class FitLines(dataset.Dataset):
         self.ribbon             = ribbon
         self.fmri_output        = fmri_output
         self.average            = average
-        self.__dict__.update(kwargs)
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -266,18 +267,18 @@ class FitLines(dataset.Dataset):
         if self.verbose:
             print(f"Running fit with {self.model}-model")
 
-        self.fitter = prf.pRFmodelFitting(self.data_for_fitter.T,
-                                          design_matrix=self.design, 
-                                          TR=self.TR, 
-                                          model=self.model, 
-                                          stage=self.stage, 
-                                          verbose=self.verbose,
-                                          output_dir=self.output_dir,
-                                          output_base=self.output_base,
-                                          write_files=True,
-                                          **kwargs)
+        # self.fitter = prf.pRFmodelFitting(self.data_for_fitter.T,
+        #                                   design_matrix=self.design, 
+        #                                   TR=self.TR, 
+        #                                   model=self.model, 
+        #                                   stage=self.stage, 
+        #                                   verbose=self.verbose,
+        #                                   output_dir=self.output_dir,
+        #                                   output_base=self.output_base,
+        #                                   write_files=True,
+        #                                   **kwargs)
 
-        self.fitter.fit()
+        # self.fitter.fit()
 
     def prepare_design(self):
 
@@ -305,6 +306,10 @@ class FitLines(dataset.Dataset):
         else:
             print("WARNING: I'm not sure which data you're going to use for fitting; can't verify if the shape of the design matrix matches the functional data.. This is likely because you're running 'prepare_design()' before 'fit()'. You can turn this message off by removing 'prepare_design()', as it's called by 'fit()'")
 
+        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.npy')
+        if self.verbose:
+            print(f"Saving design matrix as {dm_fname}")
+        io.savemat(dm_fname, {'stim': self.design})
 
     def prepare_func(self, **kwargs):
 
