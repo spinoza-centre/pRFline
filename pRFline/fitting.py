@@ -398,7 +398,8 @@ class pRFResults():
         self.__dict__.update(kwargs)
 
         if self.verbose:
-            print(f"Loading parameter file {self.prf_params}")
+            print(f"Loading in files:")
+            print(f" pRF params:    {self.prf_params}")
 
         # fetch settings; if list > get the most recent one
         self.yml = utils.get_file_from_substring("settings", os.path.dirname(self.prf_params))
@@ -409,18 +410,24 @@ class pRFResults():
         self.file_components    = split_params_file(self.prf_params)
         self.model              = self.file_components['model']
         self.stage              = self.file_components['stage']
-        self.acq                = self.file_components['acq']
+
+        # get design matrix  data
+        self.fn_design          = utils.get_file_from_substring([f"run-{self.file_components['run']}", 'desc-design_matrix'], os.path.dirname(self.prf_params))
+        self.fn_data            = utils.get_file_from_substring([f"run-{self.file_components['run']}", 'desc-data'], os.path.dirname(self.prf_params))
+        self.design             = io.loadmat(self.fn_design)['stim']
+        self.data               = np.load(self.fn_data)
+
+        if self.verbose:
+            print(f" Design matrix: {self.fn_design}")
+            print(f" fMRI data:     {self.fn_data}")
 
         # initiate the fitting class
-        self.model_fit = prf.pRFmodelFitting(partial_nan.T,
-                                             design_matrix=design_pfov,
-                                             settings=yml,
+        self.model_fit = prf.pRFmodelFitting(self.data.T,
+                                             design_matrix=self.design,
+                                             settings=self.yml,
                                              model=self.model)
 
         # load the parameters
-        self.model_fit.load_params(np.load(self.prf_params), 
-                                   model=self.model, 
-                                   stage=self.stage, 
-                                   acq=self.acq)
+        self.model_fit.load_params(np.load(self.prf_params), model=self.model, stage=self.stage)
 
             
