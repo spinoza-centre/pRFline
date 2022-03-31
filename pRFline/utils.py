@@ -3,7 +3,7 @@ import os
 from nipype.interfaces import fsl, ants, freesurfer
 opj = os.path.join
 
-def split_params_file(file):
+def split_params_file(fname):
 
     comp_list = fname.split('_')
     comps = {}
