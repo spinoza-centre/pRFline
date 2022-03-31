@@ -1,3 +1,4 @@
+from multiprocessing.sharedctypes import Value
 from linescanning import utils, prf, dataset
 import os
 import numpy as np
@@ -198,7 +199,8 @@ class FitLines(dataset.Dataset):
                  n_iterations=3,
                  strip_baseline=True, 
                  ribbon=None,
-                 fmri_output="psc",
+                 fmri_output="zscore",
+                 average=True,
                  **kwargs):
 
         self.func_files         = func_files
@@ -216,6 +218,7 @@ class FitLines(dataset.Dataset):
         self.strip_baseline     = strip_baseline
         self.ribbon             = ribbon
         self.fmri_output        = fmri_output
+        self.average            = average
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -241,21 +244,29 @@ class FitLines(dataset.Dataset):
         # fetch data
         self.prepare_func(**kwargs)
 
-        # fetch data
+        # average iterations or assume experiment is 1 iteration
         self.average_iterations(**kwargs)
 
-        # fetch design
-        # self.prepare_design()
-
-    def fit(self):
+    def fit(self, **kwargs):
     
+        # use data with/without baseline
+        if self.strip_baseline:
+            if self.verbose:
+                print("Using data WITHOUT baseline for fitting")
+            self.data_for_fitter = self.avg_iters_no_baseline.copy()
+        else:
+            if self.verbose:
+                print("Using data WITH baseline for fitting")
+            self.data_for_fitter = self.avg_iters_baseline.copy()
+
         if not hasattr(self, "design"):
             self.prepare_design()
         
         if self.verbose:
             print(f"Running fit with {self.model}-model")
+        
 
-        self.fitter = prf.pRFmodelFitting(self.avg_iters_no_baseline.T,
+        self.fitter = prf.pRFmodelFitting(self.data_for_fitter.T,
                                           design_matrix=self.design, 
                                           TR=self.TR, 
                                           model=self.model, 
@@ -263,7 +274,8 @@ class FitLines(dataset.Dataset):
                                           verbose=self.verbose,
                                           output_dir=self.output_dir,
                                           output_base=self.output_base,
-                                          write_files=True)
+                                          write_files=True,
+                                          **kwargs)
 
         self.fitter.fit()
 
@@ -284,11 +296,14 @@ class FitLines(dataset.Dataset):
         if self.verbose:
             print(f"Design matrix has shape: {self.design.shape}")
 
-        if self.verbose:
-            if self.design.shape[-1] == self.avg_iters_no_baseline.shape[0]:
-                print("Shapes of design matrix and functional data match. Ready for fit!")
-            else:
-                raise ValueError(f"Shapes of functional data ({self.avg_iters_no_baseline.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
+        if hasattr(self, "data_for_fitter"):
+            if self.verbose:
+                if self.design.shape[-1] == self.data_for_fitter.shape[0]:
+                    print("Shapes of design matrix and functional data match. Ready for fit!")
+                else:
+                    raise ValueError(f"Shapes of functional data ({self.data_for_fitter.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
+        else:
+            print("WARNING: I'm not sure which data you're going to use for fitting; can't verify if the shape of the design matrix matches the functional data.. This is likely because you're running 'prepare_design()' before 'fit()'. You can turn this message off by removing 'prepare_design()', as it's called by 'fit()'")
 
 
     def prepare_func(self, **kwargs):
@@ -310,31 +325,39 @@ class FitLines(dataset.Dataset):
 
     def average_iterations(self, **kwargs):
 
-        if self.verbose:
-            print("Chunking/averaging iterations")
-
+        # initialize Dataset-parent
         if not hasattr(self, 'avg'):
             self.prepare_func(**kwargs)
 
+        # fitting on ribbon voxels is infinitely faster
         if hasattr(self, "df_ribbon"):
             use_data = self.df_ribbon.copy()
         else:
             use_data = self.avg.copy()
 
+        # check if we should remove initial volumes (no advisable)
         if not hasattr(self, "deleted_first_timepoints"):
             start = int(round(self.baseline_duration/self.TR, 0))
         else:
             start = int(round(self.baseline_duration/self.TR, 0)) - int(round(self.deleted_first_timepoints*self.TR, 0))
 
-
-        self.iter_chunks = []
-        iter_size        = int(round(self.iter_duration/self.TR, 0))
+        # fetch baseline volumes
+        self.baseline = use_data[:start]
+        iter_size     = int(round(self.iter_duration/self.TR, 0))
         
         if self.verbose:
-            print(f" Baseline \t = {start} vols (~{round(start*self.TR,2)}s) based on TR of {self.TR}s ({self.baseline_duration}s was specified/requested)")
-            print(f" 1 iteration \t = {iter_size} vols (~{round(iter_size*self.TR,2)}s) based on TR of {self.TR}s ({self.iter_duration}s was specified/requested)")
-            
-        self.baseline    = use_data[:start]
+            print(f" Baseline    = {start} vols (~{round(start*self.TR,2)}s) based on TR of {self.TR}s ({self.baseline_duration}s was specified/requested)")
+            print(f" 1 iteration = {iter_size} vols (~{round(iter_size*self.TR,2)}s) based on TR of {self.TR}s ({self.iter_duration}s was specified/requested)")
+
+        if self.verbose:
+            if self.n_iterations > 1:
+                print(f" Chunking/averaging {self.n_iterations} iterations")
+            elif self.n_iterations == 1:
+                print(f" Averaging of chunks turned OFF (nr of iterations = {self.n_iterations})")
+            else:
+                raise ValueError(f"Unknown recognized number of iterations: '{self.n_iterations}'")
+
+        self.iter_chunks = []
         for ii in range(self.n_iterations):
 
             # try to fetch values, if steps are out of bounds, zero-pad the timecourse
@@ -351,7 +374,6 @@ class FitLines(dataset.Dataset):
 
         self.avg_iters_baseline     = np.concatenate((self.baseline, np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)))
         self.avg_iters_no_baseline  = np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)
-        
+
         if self.verbose:
             print(f" With baseline: {self.avg_iters_baseline.shape} | No baseline: {self.avg_iters_no_baseline.shape}")
-
