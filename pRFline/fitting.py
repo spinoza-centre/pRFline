@@ -1,5 +1,5 @@
-from multiprocessing.sharedctypes import Value
 from linescanning import utils, prf, dataset
+from pRFline.utils import split_params_file
 import os
 import numpy as np
 opj = os.path.join
@@ -219,6 +219,7 @@ class FitLines(dataset.Dataset):
         self.ribbon             = ribbon
         self.fmri_output        = fmri_output
         self.average            = average
+        self.__dict__.update(kwargs)
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -264,7 +265,6 @@ class FitLines(dataset.Dataset):
         
         if self.verbose:
             print(f"Running fit with {self.model}-model")
-        
 
         self.fitter = prf.pRFmodelFitting(self.data_for_fitter.T,
                                           design_matrix=self.design, 
@@ -377,3 +377,40 @@ class FitLines(dataset.Dataset):
 
         if self.verbose:
             print(f" With baseline: {self.avg_iters_baseline.shape} | No baseline: {self.avg_iters_no_baseline.shape}")
+
+
+class pRFResults():
+
+    def __init__(self, prf_params, verbose=False, **kwargs):
+
+        self.prf_params     = prf_params
+        self.verbose        = verbose
+        self.__dict__.update(kwargs)
+
+        if self.verbose:
+            print(f"Loading parameter file {self.prf_params}")
+
+        # fetch settings; if list > get the most recent one
+        self.yml = utils.get_file_from_substring("settings", os.path.dirname(self.prf_params))
+        if isinstance(self.yml, list):
+            self.yml = self.yml[-1]
+
+        # the params file should have a particular naming that allows us to read specs:
+        self.file_components    = split_params_file(self.prf_params)
+        self.model              = self.file_components['model']
+        self.stage              = self.file_components['stage']
+        self.acq                = self.file_components['acq']
+
+        # initiate the fitting class
+        self.model_fit = prf.pRFmodelFitting(partial_nan.T,
+                                             design_matrix=design_pfov,
+                                             settings=yml,
+                                             model=self.model)
+
+        # load the parameters
+        self.model_fit.load_params(np.load(self.prf_params), 
+                                   model=self.model, 
+                                   stage=self.stage, 
+                                   acq=self.acq)
+
+            
