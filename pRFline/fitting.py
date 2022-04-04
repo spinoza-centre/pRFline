@@ -203,6 +203,7 @@ class FitLines(dataset.Dataset):
                  ribbon=None,
                  fmri_output="zscore",
                  average=True,
+                 rsq_threshold=None,
                  **kwargs):
 
         self.func_files         = func_files
@@ -221,6 +222,7 @@ class FitLines(dataset.Dataset):
         self.ribbon             = ribbon
         self.fmri_output        = fmri_output
         self.average            = average
+        self.rsq_threshold      = rsq_threshold
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -281,6 +283,7 @@ class FitLines(dataset.Dataset):
                                           output_dir=self.output_dir,
                                           output_base=self.output_base,
                                           write_files=True,
+                                          rsq_threshold=self.rsq_threshold,
                                           **kwargs)
 
         self.fitter.fit()
