@@ -203,7 +203,6 @@ class FitLines(dataset.Dataset):
                  ribbon=None,
                  fmri_output="zscore",
                  average=True,
-                 rsq_threshold=None,
                  **kwargs):
 
         self.func_files         = func_files
@@ -222,7 +221,6 @@ class FitLines(dataset.Dataset):
         self.ribbon             = ribbon
         self.fmri_output        = fmri_output
         self.average            = average
-        self.rsq_threshold      = rsq_threshold
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -283,7 +281,6 @@ class FitLines(dataset.Dataset):
                                           output_dir=self.output_dir,
                                           output_base=self.output_base,
                                           write_files=True,
-                                          rsq_threshold=self.rsq_threshold,
                                           **kwargs)
 
         self.fitter.fit()
@@ -414,6 +411,11 @@ class pRFResults():
         self.model              = self.file_components['model']
         self.stage              = self.file_components['stage']
 
+        try:
+            self.run = self.file_components['run']
+        except:
+            self.run = None
+
         # get design matrix  data
         self.fn_design          = utils.get_file_from_substring([f"run-{self.file_components['run']}", 'desc-design_matrix'], os.path.dirname(self.prf_params))
         self.fn_data            = utils.get_file_from_substring([f"run-{self.file_components['run']}", 'desc-data'], os.path.dirname(self.prf_params))
@@ -431,6 +433,4 @@ class pRFResults():
                                              model=self.model)
 
         # load the parameters
-        self.model_fit.load_params(np.load(self.prf_params), model=self.model, stage=self.stage)
-
-            
+        self.model_fit.load_params(np.load(self.prf_params), model=self.model, stage=self.stage, run=self.run)
