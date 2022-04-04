@@ -124,7 +124,6 @@ def main(argv):
     block_trials    = int(sweep_trials*2 + rest_trials)
     part_trials     = int(block_trials*2 + rest_trials*2)
     iter_trials     = int(part_trials*design.get('stim_repetitions'))
-    all_trials      = int(iter_trials + bsl_trials)
     t_r             = settings['design'].get('repetition_time')
     iter_duration   = iter_trials*design.get('stim_duration')
     
@@ -164,6 +163,7 @@ def main(argv):
     model_fit = fitting.FitLines(func_files=func_files,
                                  TR=t_r,
                                  low_pass=True,
+                                 window_size=19,
                                  log_dir=log_dir,
                                  stage='grid+iter',
                                  model=model,
@@ -181,8 +181,7 @@ def main(argv):
                                  output_dir=os.path.dirname(output_dir),
                                  output_base=output_base_prf,
                                  save_as=opj(anat_dir, os.path.basename(output_dir)),
-                                 voxel_cutoff=300,
-                                 window_size=19)
+                                 voxel_cutoff=300)
 
     # fit
     model_fit.fit()
