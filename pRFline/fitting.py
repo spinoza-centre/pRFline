@@ -203,6 +203,7 @@ class FitLines(dataset.Dataset):
                  ribbon=None,
                  fmri_output="zscore",
                  average=True,
+                 rsq_threshold=None,
                  **kwargs):
 
         self.func_files         = func_files
@@ -221,6 +222,7 @@ class FitLines(dataset.Dataset):
         self.ribbon             = ribbon
         self.fmri_output        = fmri_output
         self.average            = average
+        self.rsq_threshold      = rsq_threshold
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -281,24 +283,41 @@ class FitLines(dataset.Dataset):
                                           output_dir=self.output_dir,
                                           output_base=self.output_base,
                                           write_files=True,
+                                          rsq_threshold=self.rsq_threshold,
                                           **kwargs)
 
         self.fitter.fit()
 
     def prepare_design(self):
 
-        if self.verbose:
-            print(f"Using {self.log_dir} for design")
+        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.npy')
+        if os.path.exists(dm_fname):
+            if self.verbose:
+                print(f"Using existing design matrix: {dm_fname}")
+            
+            self.design = io.loadmat(dm_fname)
+            tag = list(self.design.keys())[-1]
+            self.design = self.design[tag]
+        else:
+            if self.verbose:
+                print(f"Using {self.log_dir} for design")
 
-        self.design = prf.create_line_prf_matrix(self.log_dir, 
-                                                 stim_duration=0.25,
-                                                 nr_trs=self.avg_iters_baseline.shape[0],
-                                                 TR=0.105,
-                                                 verbose=self.verbose)
+            self.design = prf.create_line_prf_matrix(self.log_dir, 
+                                                    stim_duration=0.25,
+                                                    nr_trs=self.avg_iters_baseline.shape[0],
+                                                    TR=0.105,
+                                                    verbose=self.verbose)
 
-        if self.strip_baseline:
-            self.design = self.design[...,self.baseline.shape[0]:]
+            # strip design from its baseline
+            if self.strip_baseline:
+                self.design = self.design[...,self.baseline.shape[0]:]
 
+            # save design matrix for later reference
+            if self.verbose:
+                print(f"Saving design matrix as {dm_fname}")
+            io.savemat(dm_fname, {'stim': self.design})
+
+        # check the shapes of design and functional data match
         if self.verbose:
             print(f"Design matrix has shape: {self.design.shape}")
 
@@ -311,10 +330,6 @@ class FitLines(dataset.Dataset):
         else:
             print("WARNING: I'm not sure which data you're going to use for fitting; can't verify if the shape of the design matrix matches the functional data.. This is likely because you're running 'prepare_design()' before 'fit()'. You can turn this message off by removing 'prepare_design()', as it's called by 'fit()'")
 
-        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.npy')
-        if self.verbose:
-            print(f"Saving design matrix as {dm_fname}")
-        io.savemat(dm_fname, {'stim': self.design})
 
     def prepare_func(self, **kwargs):
 
