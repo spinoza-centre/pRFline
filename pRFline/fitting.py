@@ -338,27 +338,21 @@ class FitLines(dataset.Dataset):
 
         # fetch data and filter out NaNs
         self.data = self.fetch_fmri(dtype=self.fmri_output)
-        self.avg = self.data.groupby(['subject', 't']).mean()
 
-        if self.ribbon != None:
-            self.ribbon_idc = list(np.arange(*self.ribbon))
-
+        if self.ribbon:
             if self.verbose:
-                print(f"Selecting GM-voxels: {self.ribbon}")
+                print(" Including GM-voxels only (saves times)")
 
-            self.df_ribbon = utils.select_from_df(self.avg, expression='ribbon', indices=self.ribbon_idc)
+            self.data = self.gm_df.copy()
+        
+        # average
+        self.avg = self.data.groupby(['subject', 't']).mean()
 
     def average_iterations(self, **kwargs):
 
         # initialize Dataset-parent
         if not hasattr(self, 'avg'):
             self.prepare_func(**kwargs)
-
-        # fitting on ribbon voxels is infinitely faster
-        if hasattr(self, "df_ribbon"):
-            use_data = self.df_ribbon.copy()
-        else:
-            use_data = self.avg.copy()
 
         # check if we should remove initial volumes (no advisable)
         if not hasattr(self, "deleted_first_timepoints"):
@@ -367,7 +361,7 @@ class FitLines(dataset.Dataset):
             start = int(round(self.baseline_duration/self.TR, 0)) - int(round(self.deleted_first_timepoints*self.TR, 0))
 
         # fetch baseline volumes
-        self.baseline = use_data[:start]
+        self.baseline = self.avg[:start]
         iter_size     = int(round(self.iter_duration/self.TR, 0))
         
         if self.verbose:
@@ -386,11 +380,11 @@ class FitLines(dataset.Dataset):
         for ii in range(self.n_iterations):
 
             # try to fetch values, if steps are out of bounds, zero-pad the timecourse
-            if start+iter_size < use_data.shape[0]:
-                chunk = use_data.values[start:start+iter_size]
+            if start+iter_size < self.avg.shape[0]:
+                chunk = self.avg.values[start:start+iter_size]
             else:
-                chunk = use_data.values[start+iter_size:]
-                padded_array = np.zeros((iter_size, use_data.shape[-1]))
+                chunk = self.avg.values[start+iter_size:]
+                padded_array = np.zeros((iter_size, self.avg.shape[-1]))
                 padded_array[:chunk.shape[0]] = chunk
                 chunk = padded_array.copy()
 
