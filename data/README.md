@@ -178,7 +178,7 @@ subID=008
 sesID=2
 
 # create file
-call_ses1_to_ses2 sub-${subID} ${sesID}
+call_ses1_to_ses sub-${subID} ${sesID}
 matrix1=${DIR_DATA_DERIV}/pycortex/sub-${subID}/transforms/sub-${subID}_from-ses1_to-ses${sesID}_desc-genaff.mat
 ```
 
