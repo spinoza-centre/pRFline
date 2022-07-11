@@ -14,7 +14,7 @@ def split_params_file(fname):
             if i in el:
                 comp = el.split('-')[-1]
                 if i == "run":
-                    comp = int(comp)
+                    comp = comp
 
                 comps[i] = comp
 
