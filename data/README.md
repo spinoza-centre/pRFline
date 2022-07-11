@@ -204,7 +204,9 @@ echo "{"
 echo "  \"RepetitionTime\": 1.11149,"
 echo "  \"SkullStripped\": false,"
 echo "  \"SliceTimingCorrected\": false,"
-echo "  \"Description\": \"`basename ${matrix1}` applied to `basename ${bold}`\""
+echo "  \"MatrixApplied\": \"${matrix1}\","
+echo "  \"SourceFile\": \"${bold}\","
+echo "  \"Description\": \"temporary space (to be refined with BBR) before projection to FSNative\""
 echo "}" 
 ) >> ${json}
 
@@ -253,7 +255,9 @@ echo "{"
 echo "  \"RepetitionTime\": 1.11149,"
 echo "  \"SkullStripped\": false,"
 echo "  \"SliceTimingCorrected\": false,"
-echo "  \"Description\": \"`basename ${matrix2}` and `basename ${matrix3}` applied to `basename ${out}` (volumetric space)\""
+echo "  \"MatrixApplied\": [\"${matrix2}\", \"${matrix3}\"],"
+echo "  \"SourceFile\": \"${bold}\","
+echo "  \"Description\": \"volumetric FSnative space\""
 echo "}" 
 ) >> ${json}
 
