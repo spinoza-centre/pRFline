@@ -160,6 +160,12 @@ class FitLines(dataset.Dataset):
         Strip the design matrix from its baseline, default=True
     ribbon: list, optional
         If a list of voxels representing the gray-matter ribbon is specified, we'll perform the pRF-fit only on these voxels. This is generally favourable, but because the ribbon differs across subjects the default is None.
+    average: bool, optional
+        Average across runs before throwing data into the fitter. Default = True. Allows you to fit data on separate runs as well
+    rsq_threshold: float, optional
+        Manual set threshold for r2 if the one specified in the `template` is not desired.
+    fit_hrf: bool, optional
+        Fit the HRF during pRF-fitting. If `True`, the fitting will consist of two stages: first, a regular fitting without HRF estimatiobn. Then, the fitting object of that fit is inserted as `previous_gaussian_fitter` into a new fitter object with HRF estimation turned on. Default = False.
 
     Raises
     ----------
@@ -201,9 +207,10 @@ class FitLines(dataset.Dataset):
                  n_iterations=3,
                  strip_baseline=True, 
                  ribbon=None,
-                 fmri_output="zscore",
                  average=True,
                  rsq_threshold=None,
+                 fit_hrf=False,
+                 n_pix=100,
                  **kwargs):
 
         self.func_files         = func_files
@@ -220,9 +227,10 @@ class FitLines(dataset.Dataset):
         self.n_iterations       = n_iterations
         self.strip_baseline     = strip_baseline
         self.ribbon             = ribbon
-        self.fmri_output        = fmri_output
         self.average            = average
         self.rsq_threshold      = rsq_threshold
+        self.fit_hrf            = fit_hrf
+        self.n_pix              = n_pix
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -269,12 +277,13 @@ class FitLines(dataset.Dataset):
         np.save(data_fname, self.data_for_fitter)
         
         if not hasattr(self, "design"):
-            self.prepare_design()
+            self.prepare_design(**kwargs)
         
         if self.verbose:
             print(f"Running fit with {self.model}-model")
 
-        self.fitter = prf.pRFmodelFitting(self.data_for_fitter.T,
+        # stage 1 - no HRF
+        self.stage1 = prf.pRFmodelFitting(self.data_for_fitter.T,
                                           design_matrix=self.design, 
                                           TR=self.TR, 
                                           model=self.model, 
@@ -286,10 +295,34 @@ class FitLines(dataset.Dataset):
                                           rsq_threshold=self.rsq_threshold,
                                           **kwargs)
 
-        self.fitter.fit()
+        self.stage1.fit()
 
-    def prepare_design(self):
+        # stage2 - fit HRF after initial iterative fit
+        if self.fit_hrf:
 
+            self.previous_fitter = f"{self.model}_fitter"
+            if not hasattr(self, self.previous_fitter):
+                raise ValueError(f"fitter does not have attribute {self.previous_fitter}")
+
+            # add tag to output to differentiate between HRF=false and HRF=true
+            self.output_base += "_hrf-true"
+
+            # initiate fitter object with previous fitter
+            self.stage2 = prf.pRFmodelFitting(self.data_for_fitter.T, 
+                                              design_matrix=self.stage1.design, 
+                                              TR=self.stage1.TR, 
+                                              model=self.model, 
+                                              stage=self.stage, 
+                                              verbose=self.verbose,
+                                              fit_hrf=True,
+                                              output_dir=self.output_dir,
+                                              output_base=self.output_base,
+                                              write_files=True,                                
+                                              previous_gaussian_fitter=self.previous_fitter)
+            self.stage2.fit()
+
+    def prepare_design(self, **kwargs):
+        
         dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.npy')
         if os.path.exists(dm_fname):
             if self.verbose:
@@ -303,10 +336,12 @@ class FitLines(dataset.Dataset):
                 print(f"Using {self.log_dir} for design")
 
             self.design = prf.create_line_prf_matrix(self.log_dir, 
-                                                    stim_duration=0.25,
-                                                    nr_trs=self.avg_iters_baseline.shape[0],
-                                                    TR=0.105,
-                                                    verbose=self.verbose)
+                                                     stim_duration=0.25,
+                                                     nr_trs=self.avg_iters_baseline.shape[0],
+                                                     TR=0.105,
+                                                     verbose=self.verbose,
+                                                     n_pix=self.n_pix,
+                                                     **kwargs)
 
             # strip design from its baseline
             if self.strip_baseline:
@@ -332,12 +367,12 @@ class FitLines(dataset.Dataset):
 
 
     def prepare_func(self, **kwargs):
-
+        
         super().__init__(self.func_files, verbose=self.verbose, **kwargs)
         # self.func = dataset.Dataset(self.func_files, verbose=self.verbose, **kwargs)
 
         # fetch data and filter out NaNs
-        self.data = self.fetch_fmri(dtype=self.fmri_output)
+        self.data = self.fetch_fmri()
 
         if self.ribbon:
             if self.verbose:
@@ -400,10 +435,11 @@ class FitLines(dataset.Dataset):
 
 class pRFResults():
 
-    def __init__(self, prf_params, verbose=False, **kwargs):
+    def __init__(self, prf_params, verbose=False, TR=0.105, **kwargs):
 
         self.prf_params     = prf_params
         self.verbose        = verbose
+        self.TR             = TR
         self.__dict__.update(kwargs)
 
         if self.verbose:
@@ -422,13 +458,25 @@ class pRFResults():
 
         try:
             self.run = self.file_components['run']
+            search_design = [f"run-{self.file_components['run']}", 'desc-design_matrix']
+            search_data = [f"run-{self.file_components['run']}", 'desc-data']
         except:
             self.run = None
+            search_design = 'desc-design_matrix'
+            search_data = 'desc-data'
 
         # get design matrix  data
-        self.fn_design          = utils.get_file_from_substring([f"run-{self.file_components['run']}", 'desc-design_matrix'], os.path.dirname(self.prf_params))
-        self.fn_data            = utils.get_file_from_substring([f"run-{self.file_components['run']}", 'desc-data'], os.path.dirname(self.prf_params))
-        self.design             = io.loadmat(self.fn_design)['stim']
+        self.fn_design          = utils.get_file_from_substring(search_design, os.path.dirname(self.prf_params))
+        self.fn_data            = utils.get_file_from_substring(search_data, os.path.dirname(self.prf_params))
+
+        # check if design is a numpy-file or mat-file
+        if self.fn_design.endswith("npy"):
+            self.design = np.load(self.fn_design)
+        elif self.fn_design.endswith("mat"):
+            self.design = io.loadmat(self.fn_design)
+            self.design = self.design[list(self.design.keys())[-1]]
+        
+        # load data
         self.data               = np.load(self.fn_data)
 
         if self.verbose:
@@ -439,7 +487,36 @@ class pRFResults():
         self.model_fit = prf.pRFmodelFitting(self.data.T,
                                              design_matrix=self.design,
                                              settings=self.yml,
-                                             model=self.model)
+                                             model=self.model,
+                                             TR=self.TR)
 
         # load the parameters
-        self.model_fit.load_params(np.load(self.prf_params), model=self.model, stage=self.stage, run=self.run)
+        self.model_fit.load_params(self.prf_params, model=self.model, stage=self.stage, run=self.run)
+
+    def plot_prf_timecourse(self, vox_id=None, vox_range=None, save=True, ext="png", **kwargs):
+
+        if vox_range == None:
+            if save:
+                fname = opj(os.path.dirname(self.prf_params), f"plot_vox-{vox_id}.{ext}")
+            else:
+                fname = None
+            pars,_,_ = self.model_fit.plot_vox(vox_nr=vox_id, 
+                                               model=self.model,
+                                               transpose=False, 
+                                               axis_type="time",
+                                               save_as=fname,
+                                               **kwargs)
+
+        else:
+            for vox_id in range(*vox_range):
+                if save:
+                    fname = opj(os.path.dirname(self.prf_params), f"plot_vox-{vox_id}.{ext}")
+                else:
+                    fname = None
+
+                pars,_,_ = self.model_fit.plot_vox(vox_nr=vox_id, 
+                                                   model=self.model,
+                                                   transpose=False, 
+                                                   axis_type="time",
+                                                   save_as=fname,
+                                                   **kwargs)
