@@ -46,7 +46,18 @@ class FitPartialFOV:
     >>> model_fit.fit()
     """
 
-    def __init__(self, func_files, TR=1.111, log_dir=None, output_base=None, output_dir=None, verbose=False, **kwargs):
+    def __init__(self, 
+                 func_files, 
+                 TR=1.111, 
+                 log_dir=None, 
+                 output_base=None, 
+                 output_dir=None, 
+                 verbose=False, 
+                 fit_hrf=False, 
+                 standardization="psc", 
+                 rsq_threshold=None, 
+                 n_pix=100,
+                 **kwargs):
 
         self.func_files         = func_files
         self.verbose            = False
@@ -57,6 +68,10 @@ class FitPartialFOV:
         self.model              = "norm"
         self.stage              = "grid+iter"
         self.verbose            = verbose
+        self.fit_hrf            = fit_hrf
+        self.standardization    = standardization
+        self.rsq_threshold      = rsq_threshold
+        self.n_pix              = n_pix
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -83,22 +98,112 @@ class FitPartialFOV:
             else:
                 raise ValueError(f"Shapes of functional data ({self.data.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data.")
 
-    def fit(self):
-        
+    def fit(self, **kwargs):
+
         if self.verbose:
-            print(f"Running fit with {self.model}-model")
+            print("\n---------------------------------------------------------------------------------------------------")
+            print(f"STAGE 1 [no HRF]")
 
-        fitter = prf.pRFmodelFitting(self.data.T, 
-                                     design_matrix=self.design, 
-                                     TR=self.TR, 
-                                     model=self.model, 
-                                     stage=self.stage, 
-                                     verbose=self.verbose,
-                                     output_dir=self.output_dir,
-                                     output_base=self.output_base,
-                                     write_files=True)
+        data_fname = opj(self.output_dir, self.output_base+'_desc-data.npy')
+        if self.verbose:
+            print(f"Saving data as {data_fname}")
+        np.save(data_fname, self.data)
+        
+        if not hasattr(self, "design"):
+            self.prepare_design(**kwargs)
+        
+        # stage 1 - no HRF
+        self.stage1 = prf.pRFmodelFitting(self.data.T,
+                                          design_matrix=self.design, 
+                                          TR=self.TR, 
+                                          model=self.model, 
+                                          stage=self.stage, 
+                                          verbose=self.verbose,
+                                          output_dir=self.output_dir,
+                                          output_base=self.output_base,
+                                          write_files=True,
+                                          rsq_threshold=self.rsq_threshold,
+                                          **kwargs)
 
-        fitter.fit()
+        # stage can be 'grid', 'iter' or 'grid+iter'
+        if "iter" in self.stage:
+            used_stage = "iter"
+        else:
+            used_stage = "grid"
+
+        # check if params-file already exists
+        self.pars_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+        # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
+        if not os.path.exists(self.pars_file):
+            if self.verbose:
+                print(f"Running fit with {self.model}-model (HRF=False)")
+
+            # fit
+            self.stage1.fit()
+        else:
+            if self.verbose:
+                print(f"Parameter file '{self.pars_file}'")
+            
+            # load
+            self.stage1.load_params(self.pars_file, model=self.model, stage=used_stage)
+
+        # stage2 - fit HRF after initial iterative fit
+        if self.fit_hrf:
+
+            if self.verbose:
+                print("\n---------------------------------------------------------------------------------------------------")
+                print(f"STAGE 2 [HRF]- Running fit with {self.model}-model")
+
+            # check first if we can insert the entire fitter (in case of fitting HRF directly after the other)
+            # then check if we have old parameters when running stage1 and stage2 separately
+            if hasattr(self.stage1, f"{self.model}_fitter"):
+                if self.verbose:
+                    print(f"Use '{self.model}_fitter' from {self.stage1} [fitter]")
+
+                prev_fitter = getattr(self.stage1, f"{self.model}_fitter")
+                old_pars = None
+            elif hasattr(self.stage1, f"{self.model}_{used_stage}"):
+                if self.verbose:
+                    print(f"Use '{self.model}_{used_stage}' from {self.stage1} [parameters]")
+
+                old_pars = getattr(self.stage1, f"{self.model}_{used_stage}")
+                prev_fitter = None
+            else:
+                raise ValueError(f"Could not derive '{self.model}_fitter' or '{self.model}_{used_stage}' from {self.stage1}")
+
+            # add tag to output to differentiate between HRF=false and HRF=true
+            self.output_base += "_hrf-true"
+
+            # initiate fitter object with previous fitter
+            self.stage2 = prf.pRFmodelFitting(self.data.T, 
+                                              design_matrix=self.design, 
+                                              TR=self.stage1.TR, 
+                                              model=self.model, 
+                                              stage=self.stage, 
+                                              verbose=self.verbose,
+                                              fit_hrf=True,
+                                              output_dir=self.output_dir,
+                                              output_base=self.output_base,
+                                              write_files=True,                                
+                                              previous_gaussian_fitter=prev_fitter,
+                                              old_params=old_pars)
+
+
+        # check if params-file already exists
+        self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+        # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
+        if not os.path.exists(self.hrf_file):
+            if self.verbose:
+                print(f"Running fit with {self.model}-model (HRF=False)")
+
+            # fit
+            self.stage2.fit()
+        else:
+            if self.verbose:
+                print(f"Parameter file '{self.hrf_file}'")
+            
+            # load
+            self.stage2.load_params(self.hrf_file, model=self.model, stage=used_stage)
 
     def prepare_design(self):
 
@@ -109,6 +214,7 @@ class FitPartialFOV:
                                                  stim_duration=self.duration, 
                                                  nr_trs=self.data.shape[0],
                                                  stim_at_half_TR=True,
+                                                 n_pix=self.n_pix,
                                                  TR=self.TR)
 
         if self.verbose:
@@ -117,25 +223,28 @@ class FitPartialFOV:
     def prepare_func(self):
 
         if self.verbose:
-            print(f"Received {self.func_files}")
+            print("Input files:")
 
+            if isinstance(self.func_files, str):
+                print(f" {self.func_files}")
+            elif isinstance(self.func_files, list):
+                for ii in self.func_files:
+                    print(f" {ii}")
+            else:
+                raise ValueError(f"Unknown input type {type(self.func_files)}. Must be a array/string pointing to an existing file or a list of files/arrays")
+            
         self.partial = dataset.Dataset(self.func_files,
-                                      TR=self.TR,
-                                      deleted_first_timepoints=0, 
-                                      deleted_last_timepoints=0,
-                                      lb=0.01,
-                                      high_pass=True,
-                                      low_pass=False,
-                                      window_size=5,
-                                      use_bids=True,
-                                      verbose=self.verbose)
+                                       TR=self.TR,
+                                       use_bids=True,
+                                       standardization=self.standardization,
+                                       verbose=self.verbose)
 
         # fetch data and filter out NaNs
-        self.data = self.partial.fetch_fmri()
-        self.data = utils.filter_for_nans(self.data.values)
+        self.df_data = self.partial.fetch_fmri()
+        self.data = self.df_data.values
         
         if self.verbose:
-            print(f"Func data has shape: {self.data.shape}")
+            print(f"Func data has shape: {self.data.shape} ({type(self.data)})")
 
 class FitLines(dataset.Dataset):
     """FitLines
@@ -246,6 +355,10 @@ class FitLines(dataset.Dataset):
                 raise ValueError(f"Could not read BIDS-components from {func}. Please format accordingly or specify 'output_base'")
         else:
             self.output_base = output_base
+        
+        # create output directory
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir, exist_ok=True)
 
         # update kwargs for pRFmodelFitting & plotting
         self.__dict__.update(kwargs)
@@ -260,7 +373,11 @@ class FitLines(dataset.Dataset):
         self.average_iterations(**kwargs)
 
     def fit(self, **kwargs):
-    
+
+        if self.verbose:
+            print("\n---------------------------------------------------------------------------------------------------")
+            print(f"STAGE 1 [no HRF]")
+
         # use data with/without baseline
         if self.strip_baseline:
             if self.verbose:
@@ -279,9 +396,6 @@ class FitLines(dataset.Dataset):
         if not hasattr(self, "design"):
             self.prepare_design(**kwargs)
         
-        if self.verbose:
-            print(f"Running fit with {self.model}-model")
-
         # stage 1 - no HRF
         self.stage1 = prf.pRFmodelFitting(self.data_for_fitter.T,
                                           design_matrix=self.design, 
@@ -295,21 +409,58 @@ class FitLines(dataset.Dataset):
                                           rsq_threshold=self.rsq_threshold,
                                           **kwargs)
 
-        self.stage1.fit()
+        # stage can be 'grid', 'iter' or 'grid+iter'
+        if "iter" in self.stage:
+            used_stage = "iter"
+        else:
+            used_stage = "grid"
+
+        # check if params-file already exists
+        self.pars_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+        # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
+        if not os.path.exists(self.pars_file):
+            if self.verbose:
+                print(f"Running fit with {self.model}-model (HRF=False)")
+
+            # fit
+            self.stage1.fit()
+        else:
+            if self.verbose:
+                print(f"Parameter file '{self.pars_file}'")
+            
+            # load
+            self.stage1.load_params(self.pars_file, model=self.model, stage=used_stage)
 
         # stage2 - fit HRF after initial iterative fit
         if self.fit_hrf:
 
-            self.previous_fitter = f"{self.model}_fitter"
-            if not hasattr(self, self.previous_fitter):
-                raise ValueError(f"fitter does not have attribute {self.previous_fitter}")
+            if self.verbose:
+                print("\n---------------------------------------------------------------------------------------------------")
+                print(f"STAGE 2 [HRF]- Running fit with {self.model}-model")
+
+            # check first if we can insert the entire fitter (in case of fitting HRF directly after the other)
+            # then check if we have old parameters when running stage1 and stage2 separately
+            if hasattr(self.stage1, f"{self.model}_fitter"):
+                if self.verbose:
+                    print(f"Use '{self.model}_fitter' from {self.stage1} [fitter]")
+
+                prev_fitter = getattr(self.stage1, f"{self.model}_fitter")
+                old_pars = None
+            elif hasattr(self.stage1, f"{self.model}_{used_stage}"):
+                if self.verbose:
+                    print(f"Use '{self.model}_{used_stage}' from {self.stage1} [parameters]")
+
+                old_pars = getattr(self.stage1, f"{self.model}_{used_stage}")
+                prev_fitter = None
+            else:
+                raise ValueError(f"Could not derive '{self.model}_fitter' or '{self.model}_{used_stage}' from {self.stage1}")
 
             # add tag to output to differentiate between HRF=false and HRF=true
             self.output_base += "_hrf-true"
 
             # initiate fitter object with previous fitter
             self.stage2 = prf.pRFmodelFitting(self.data_for_fitter.T, 
-                                              design_matrix=self.stage1.design, 
+                                              design_matrix=self.design, 
                                               TR=self.stage1.TR, 
                                               model=self.model, 
                                               stage=self.stage, 
@@ -318,8 +469,25 @@ class FitLines(dataset.Dataset):
                                               output_dir=self.output_dir,
                                               output_base=self.output_base,
                                               write_files=True,                                
-                                              previous_gaussian_fitter=self.previous_fitter)
+                                              previous_gaussian_fitter=prev_fitter,
+                                              old_params=old_pars)
+
+
+        # check if params-file already exists
+        self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+        # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
+        if not os.path.exists(self.hrf_file):
+            if self.verbose:
+                print(f"Running fit with {self.model}-model (HRF=False)")
+
+            # fit
             self.stage2.fit()
+        else:
+            if self.verbose:
+                print(f"Parameter file '{self.hrf_file}'")
+            
+            # load
+            self.stage2.load_params(self.hrf_file, model=self.model, stage=used_stage)
 
     def prepare_design(self, **kwargs):
         
@@ -367,6 +535,10 @@ class FitLines(dataset.Dataset):
 
 
     def prepare_func(self, **kwargs):
+
+        if self.verbose:
+            print("\n---------------------------------------------------------------------------------------------------")
+            print(f"Preprocessing functional data")                    
         
         super().__init__(self.func_files, verbose=self.verbose, **kwargs)
         # self.func = dataset.Dataset(self.func_files, verbose=self.verbose, **kwargs)
@@ -477,7 +649,7 @@ class pRFResults():
             self.design = self.design[list(self.design.keys())[-1]]
         
         # load data
-        self.data               = np.load(self.fn_data)
+        self.data = np.load(self.fn_data)
 
         if self.verbose:
             print(f" Design matrix: {self.fn_design}")
