@@ -214,15 +214,15 @@ echo "}"
 call_antsapplytransforms -i 1 ${ref} ${bold} ${out} ${matrix1}
 
 # make boldref
-boldref=$(dirname ${out})/$(basename ${out} desc-preproc_bold.nii.gz)boldref.nii.gz
-fslmaths ${out} -Tmean ${boldref}
+boldref1=$(dirname ${out})/$(basename ${out} desc-preproc_bold.nii.gz)boldref.nii.gz
+fslmaths ${out} -Tmean ${boldref1}
 ```
 
 This registration is not perfect, so we can refine the registration with `bbregister` from here by taking another workflow from fMRIPrep called `bold_reg_wf`, and we'll input the motion/distortion corrected registered file (`boldref`) as input. The output consists of the directory + basename:
 ```bash
 workdir=${DIR_DATA_SOURCE}/sub-${subID}/ses-2/single_subject_${subID}_wf/func_preproc_ses_${sesID}_task_pRF_run_1_acq_3DEPI_wf # store with other workflow outputs
 outdir=${DIR_DATA_DERIV}/fmriprep/sub-${subID}/ses-${sesID}/func/sub-${subID}_ses-${sesID}_task-pRF_acq-3DEPI_run-1 # 'from-{bold|T1w}_to-{bold|T1w}_mode-image_xfm.txt will be appended
-call_bbregwf -s ${subID} -b ${boldref} -w ${workdir} -o ${outdir}
+call_bbregwf -s ${subID} -b ${boldref1} -w ${workdir} -o ${outdir}
 ```
 
 ## Combine `from-tmp_to-T1w` and `from-T1w_to-fsnative` in one step:
@@ -265,8 +265,8 @@ echo "}"
 call_antsapplytransforms -i "0 0" ${anat} ${bold} ${out} "${matrix2} ${matrix3}"
 
 # make boldref
-boldref=$(dirname ${out})/$(basename ${out} desc-preproc_bold.nii.gz)boldref.nii.gz
-fslmaths ${out} -Tmean ${boldref}
+boldref2=$(dirname ${out})/$(basename ${out} desc-preproc_bold.nii.gz)boldref.nii.gz
+fslmaths ${out} -Tmean ${boldref2}
 ```
 
 ### Project to surface
@@ -284,3 +284,47 @@ call_vol2fsaverage -t -o ${outdir} -p ${prefix} sub-${subID} ${out} ${suffix}
 ```
 
 Aside from `gii`-files, [call_vol2fsaverage](https://github.com/gjheij/linescanning/blob/main/bin/call_vol2fsaverage) will also produce a numpy array in which the `gii`'s from the left and right hemisphere (for both `fsnative` and `fsaverage`) are stacked onto one another (*left* first). This numpy array can be directly used in conjunction with [the dataset class](https://github.com/gjheij/linescanning/blob/main/linescanning/dataset.py#L1657)
+
+## Brain extract 3D-EPI with brain-mask from T1w
+The whole reason we do this exercise is because fMRIPrep fails on the brain mask. Technically we have all the ingredients to brainmask the 3D-EPI data: a warp mapping bold to T1w, and a good brainmask in T1w-space. We can therefore apply the warp to the mask to create a bold mask.
+
+```bash
+# set the output to something fMRIPreppy
+bold_mask=${DIR_DATA_DERIV}/fmriprep/sub-${subID}/ses-${sesID}/func/sub-${subID}_ses-${sesID}_task-pRF_acq-3DEPI_run-1_desc-brain_mask.nii.gz
+
+# mask
+t1_mask=${DIR_DATA_DERIV}/fmriprep/sub-${subID}/ses-1/anat/sub-${subID}_ses-1_acq-MP2RAGE_desc-brain_mask.nii.gz
+
+# apply
+call_antsapplytransforms -v -i "0 1" -t gen ${boldref1} ${t1_mask} ${bold_mask} "${matrix1} ${matrix2}"
+
+# dilate slightly
+call_dilate ${bold_mask} ${bold_mask} 2
+
+# apply mask
+bold=${DIR_DATA_DERIV}/fmriprep/sub-${subID}/ses-${sesID}/func/sub-${subID}_ses-${sesID}_task-pRF_acq-3DEPI_run-1_desc-preproc_bold.nii.gz
+out=${DIR_DATA_DERIV}/fmriprep/sub-${subID}/ses-${sesID}/func/sub-${subID}_ses-${sesID}_task-pRF_acq-3DEPI_run-1_desc-masked_bold.nii.gz
+
+fslmaths ${bold} -mas ${bold_mask} ${out}
+
+# json file
+json=$(dirname ${out})/$(basename ${out} .nii.gz).json
+if [ -f ${json} ]; then
+    rm ${json}
+fi
+
+(
+echo "{"
+echo "  \"RepetitionTime\": 1.11149,"
+echo "  \"SkullStripped\": true,"
+echo "  \"SliceTimingCorrected\": false,"
+echo "  \"MaskSource\": \"${bold_mask}\","
+echo "  \"SourceFile\": \"${bold}\","
+echo "  \"Description\": \"motion/distortion correct + brain extraction\""
+echo "}" 
+) >> ${json}
+
+# boldref
+boldref3=$(dirname ${out})/$(basename ${out} .nii.gz)ref.nii.gz
+fslmaths ${out} -Tmean ${boldref3}
+```
