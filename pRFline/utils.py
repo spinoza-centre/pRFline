@@ -8,7 +8,7 @@ def split_params_file(fname):
     comp_list = fname.split('_')
     comps = {}
     
-    ids = ['sub', 'ses', 'run', 'model', 'stage']
+    ids = ['sub', 'ses', 'run', 'model', 'stage', 'acq']
     for el in comp_list:
         for i in ids:
             if i in el:
