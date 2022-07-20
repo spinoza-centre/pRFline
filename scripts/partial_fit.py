@@ -35,6 +35,7 @@ def main(argv):
     --zscore            use zscore as standardization
     --fsnative          fit in FSNative space
     --fsaverage         fit in FSAverage space
+    --hrf               fit HRF with the pRFs
 
     Returns
     ----------
@@ -42,7 +43,19 @@ def main(argv):
 
     Example
     ----------
-    >>> 
+    >>> # set subject/session
+    >>> subID=002
+    >>> sesID=2
+    >>> #
+    >>> # set path
+    >>> bids_dir=${DIR_DATA_DERIV}/fmriprep
+    >>> log_dir=${DIR_DATA_SOURCE}/sub-${subID}/ses-${sesID}/sub-${subID}_ses-${sesID}_task-pRF_run-imgs
+    >>> #
+    >>> # submit to cluster or run locally with python
+    >>> # job="python"
+    >>> job="qsub -N pfov_${subID} -pe smp 5 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs"
+    >>> #
+    >>> ${job} partial_fit.py -s ${subID} -n ${sesID} -b ${bids_dir} -l ${log_dir} -v --fsnative # fit with fsnative
     """
 
     subject         = None
@@ -106,6 +119,8 @@ def main(argv):
             n_pix = arg   
         elif opt in ("--no-fit"):
             fit = False
+        elif opt in ("--hrf"):
+            fit_hrf = True            
 
     if len(argv) == 0:
         print(main.__doc__)
