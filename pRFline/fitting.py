@@ -189,21 +189,21 @@ class FitPartialFOV:
                                               old_params=old_pars)
 
 
-        # check if params-file already exists
-        self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
-        # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
-        if not os.path.exists(self.hrf_file):
-            if self.verbose:
-                print(f"Running fit with {self.model}-model (HRF=False)")
+            # check if params-file already exists
+            self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+            # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
+            if not os.path.exists(self.hrf_file):
+                if self.verbose:
+                    print(f"Running fit with {self.model}-model (HRF=False)")
 
-            # fit
-            self.stage2.fit()
-        else:
-            if self.verbose:
-                print(f"Parameter file '{self.hrf_file}'")
-            
-            # load
-            self.stage2.load_params(self.hrf_file, model=self.model, stage=used_stage)
+                # fit
+                self.stage2.fit()
+            else:
+                if self.verbose:
+                    print(f"Parameter file '{self.hrf_file}'")
+                
+                # load
+                self.stage2.load_params(self.hrf_file, model=self.model, stage=used_stage)
 
     def prepare_design(self):
 
@@ -491,7 +491,7 @@ class FitLines(dataset.Dataset):
 
     def prepare_design(self, **kwargs):
         
-        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.npy')
+        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.mat')
         if os.path.exists(dm_fname):
             if self.verbose:
                 print(f"Using existing design matrix: {dm_fname}")
@@ -624,9 +624,9 @@ class pRFResults():
             self.yml = self.yml[-1]
 
         # the params file should have a particular naming that allows us to read specs:
-        self.file_components    = split_params_file(self.prf_params)
-        self.model              = self.file_components['model']
-        self.stage              = self.file_components['stage']
+        self.file_components = split_params_file(self.prf_params)
+        self.model = self.file_components['model']
+        self.stage = self.file_components['stage']
 
         try:
             self.run = self.file_components['run']
@@ -638,8 +638,13 @@ class pRFResults():
             search_data = 'desc-data'
 
         # get design matrix  data
-        self.fn_design          = utils.get_file_from_substring(search_design, os.path.dirname(self.prf_params))
-        self.fn_data            = utils.get_file_from_substring(search_data, os.path.dirname(self.prf_params))
+        self.fn_design = utils.get_file_from_substring(search_design, os.path.dirname(self.prf_params))
+        self.fn_data = utils.get_file_from_substring(search_data, os.path.dirname(self.prf_params))
+
+        if self.verbose:
+
+            print(f" Design matrix: {self.fn_design}")
+            print(f" fMRI data:     {self.fn_data}")
 
         # check if design is a numpy-file or mat-file
         if self.fn_design.endswith("npy"):
@@ -650,10 +655,6 @@ class pRFResults():
         
         # load data
         self.data = np.load(self.fn_data)
-
-        if self.verbose:
-            print(f" Design matrix: {self.fn_design}")
-            print(f" fMRI data:     {self.fn_data}")
 
         # initiate the fitting class
         self.model_fit = prf.pRFmodelFitting(self.data.T,
@@ -677,6 +678,8 @@ class pRFResults():
                                                transpose=False, 
                                                axis_type="time",
                                                save_as=fname,
+                                               resize_pix=270,
+                                               title='pars',
                                                **kwargs)
 
         else:
@@ -691,4 +694,16 @@ class pRFResults():
                                                    transpose=False, 
                                                    axis_type="time",
                                                    save_as=fname,
+                                                   resize_pix=270,
+                                                   title='pars',                                                   
                                                    **kwargs)
+
+        # target pRF
+        self.target_obj = prf.CollectSubject(subject=f"sub-{self.file_components['sub']}",
+                                             derivatives=os.environ.get('DIR_DATA_DERIV'),
+                                             settings='recent',
+                                             model=self.model)
+
+        if save:
+            fname = opj(os.path.dirname(self.prf_params), f"plot_vox-target.{ext}")
+            self.target_obj.target_prediction_prf(save_as=fname)
