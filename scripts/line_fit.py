@@ -34,12 +34,13 @@ def main(argv):
     -i|--n_iter     <iterations>    the experiment consists of one set of 8 sweeps (1 iteration) that can be repeated multiple times. We can average these iterations by specifying how many iterations we used. By default, the number of iterations will be read from the log-file from ExpTools, which will always be 1 given that we use the directory that has the screenshots. For that, we only need 1 iterations. With this extra flag you can specify how many iterations to consider.
     -m|--model      <model>         Model type to use, e.g., "gauss" or "norm". Defaults to 'norm'.
     -v|--verbose                    turn on verbose
+    -q|--qa|--no-fit                do quality control, not full fitting; plots will be stored in the 'anat' folder. Stop *before* creation of design matrix (see `--dm` for quitting process *after* design matrix)
     --ses_trafo     <file>          transformation mapping ses-1 to the closest partial anatomy prior to the corresponding slice of the line-scanning acquisition
     --filter_pca    <float>         cutoff frequency for highpass filtering of PCA components. This procedure can ensure that task-related frequencies in the PCA-components do not get removed
     --rsq           <float>         r2-threshold to use during pRF-fitting. Parameters of voxels < threshold will be set to 0
+    --dm                            stop process after making the design matrix. One step further compared to `-q|--qa` or `--no-fit`, which stop *before* the creation of design matrix
     --hrf                           fit the HRF with the pRF-parameters as implemented in `prfpy`    
     -g                              run model fitter with gray matter voxels only (based on the average tissue probabilities across runs)
-    -q                              do quality control, not full fitting; plots will be stored in the 'anat' folder.
 
     Returns
     ----------
@@ -88,10 +89,11 @@ def main(argv):
     make_report     = True
     do_acompcor     = True
     n_pix           = 100
+    stop_at_dm      = False
 
     # long options without argument: https://stackoverflow.com/a/54170513
     try:
-        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix="])[0]
+        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no-fit"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -129,12 +131,16 @@ def main(argv):
             gm_only = True
         elif opt in ("-q", "--qa"):
             qa = True
+        elif opt in ("--no-fit"):
+            qa = True            
         elif opt in ("--no_report"):
             make_report = False
         elif opt in ("--no_acompcor"):
             do_acompcor = False
         elif opt in ("--n_pix"):
             n_pix = arg
+        elif opt in ("--dm"):
+            stop_at_dm = True
     
     if len(argv) == 0:
         print(main.__doc__)
@@ -244,10 +250,11 @@ def main(argv):
                                  ribbon=gm_only,
                                  fit_hrf=fit_hrf,
                                  report=make_report,
-                                 n_pix=n_pix)
+                                 n_pix=n_pix,
+                                 design_only=stop_at_dm)
 
     # fit
-    if not qa:
+    if not qa and not stop_at_dm:
         model_fit.fit()
 
 if __name__ == "__main__":
