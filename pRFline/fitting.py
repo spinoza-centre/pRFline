@@ -1,7 +1,9 @@
-from linescanning import utils, prf, dataset
-from pRFline.utils import split_params_file
-import os
+from linescanning import utils, prf, dataset, plotting
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D         
 import numpy as np
+import os
+from pRFline.utils import split_params_file
 from scipy import io
 
 opj = os.path.join
@@ -207,8 +209,15 @@ class FitPartialFOV:
 
     def prepare_design(self):
 
-        if self.verbose:
-            print(f"Using {self.log_dir} for design")
+        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.npy')
+        if os.path.exists(dm_fname):
+            if self.verbose:
+                print(f"Using existing design matrix: {dm_fname}")
+            
+            self.design = np.load(dm_fname)
+        else:
+            if self.verbose:
+                print(f"Using {self.log_dir} for design")
 
         self.design = prf.create_line_prf_matrix(self.log_dir, 
                                                  stim_duration=self.duration, 
@@ -219,6 +228,11 @@ class FitPartialFOV:
 
         if self.verbose:
             print(f"Design matrix has shape: {self.design.shape}")
+
+        # save design matrix for later reference
+        if self.verbose:
+            print(f"Saving design matrix as {dm_fname}")
+        np.save(dm_fname, self.design)
 
     def prepare_func(self):
 
@@ -285,7 +299,7 @@ class FitLines(dataset.Dataset):
 
     Example
     ----------
-    >>> func_files = get_file_from_substring(["task-pRF", "bold.mat"], func_dir)
+    >>> func_files = get_file_from_substring(["task-pRF", "bold.npy"], func_dir)
     >>> model_fit = fitting.FitLines(func_files=func_files,
     >>>                              output_dir=output_dir,
     >>>                              TR=0.105,
@@ -320,6 +334,7 @@ class FitLines(dataset.Dataset):
                  rsq_threshold=None,
                  fit_hrf=False,
                  n_pix=100,
+                 design_only=False,
                  **kwargs):
 
         self.func_files         = func_files
@@ -340,6 +355,7 @@ class FitLines(dataset.Dataset):
         self.rsq_threshold      = rsq_threshold
         self.fit_hrf            = fit_hrf
         self.n_pix              = n_pix
+        self.design_only        = design_only
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -371,6 +387,10 @@ class FitLines(dataset.Dataset):
 
         # average iterations or assume experiment is 1 iteration
         self.average_iterations(**kwargs)
+        
+        # check if we should make design; default = False, which results in the DM being created in fit()
+        if self.design_only:
+            self.prepare_design()
 
     def fit(self, **kwargs):
 
@@ -491,14 +511,12 @@ class FitLines(dataset.Dataset):
 
     def prepare_design(self, **kwargs):
         
-        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.mat')
+        dm_fname = opj(self.output_dir, self.output_base+'_desc-design_matrix.npy')
         if os.path.exists(dm_fname):
             if self.verbose:
                 print(f"Using existing design matrix: {dm_fname}")
             
-            self.design = io.loadmat(dm_fname)
-            tag = list(self.design.keys())[-1]
-            self.design = self.design[tag]
+            self.design = np.load(dm_fname)
         else:
             if self.verbose:
                 print(f"Using {self.log_dir} for design")
@@ -518,7 +536,7 @@ class FitLines(dataset.Dataset):
             # save design matrix for later reference
             if self.verbose:
                 print(f"Saving design matrix as {dm_fname}")
-            io.savemat(dm_fname, {'stim': self.design})
+            np.save(dm_fname, self.design)
 
         # check the shapes of design and functional data match
         if self.verbose:
@@ -529,10 +547,7 @@ class FitLines(dataset.Dataset):
                 if self.design.shape[-1] == self.data_for_fitter.shape[0]:
                     print("Shapes of design matrix and functional data match. Ready for fit!")
                 else:
-                    raise ValueError(f"Shapes of functional data ({self.data_for_fitter.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")            
-        else:
-            print("WARNING: I'm not sure which data you're going to use for fitting; can't verify if the shape of the design matrix matches the functional data.. This is likely because you're running 'prepare_design()' before 'fit()'. You can turn this message off by removing 'prepare_design()', as it's called by 'fit()'")
-
+                    raise ValueError(f"Shapes of functional data ({self.data_for_fitter.shape[0]}) does not match shape of design matrix ({self.design.shape[-1]}). You might have to transpose your data or cut away baseline.")
 
     def prepare_func(self, **kwargs):
 
@@ -628,21 +643,26 @@ class pRFResults():
         self.model = self.file_components['model']
         self.stage = self.file_components['stage']
 
-        try:
-            self.run = self.file_components['run']
-            search_design = [f"run-{self.file_components['run']}", 'desc-design_matrix']
-            search_data = [f"run-{self.file_components['run']}", 'desc-data']
-        except:
-            self.run = None
-            search_design = 'desc-design_matrix'
-            search_data = 'desc-data'
+        # start off with defaults
+        self.run = None
+        self.acq = None
+        search_design = ['desc-design_matrix']
+        search_data = ['desc-data']
+
+        # update by checking file components
+        for el in ['run', 'acq']:
+            try:
+                setattr(self, el, self.file_components[el])
+                search_design = search_design + [f"{el}-{self.file_components[el]}"]
+                search_data = search_data + [f"{el}-{self.file_components[el]}"]
+            except:
+                pass 
 
         # get design matrix  data
         self.fn_design = utils.get_file_from_substring(search_design, os.path.dirname(self.prf_params))
         self.fn_data = utils.get_file_from_substring(search_data, os.path.dirname(self.prf_params))
 
         if self.verbose:
-
             print(f" Design matrix: {self.fn_design}")
             print(f" fMRI data:     {self.fn_data}")
 
@@ -663,40 +683,42 @@ class pRFResults():
                                              model=self.model,
                                              TR=self.TR)
 
-        # load the parameters
-        self.model_fit.load_params(self.prf_params, model=self.model, stage=self.stage, run=self.run)
+        # check for HRF flag
+        if 'hrf' in list(self.file_components.keys()):
+            fit_hrf = True
+        else:
+            fit_hrf = False
 
-    def plot_prf_timecourse(self, vox_id=None, vox_range=None, save=True, ext="png", **kwargs):
+        # load the parameters
+        self.model_fit.load_params(self.prf_params, model=self.model, stage=self.stage, run=self.run, acq=self.acq, hrf=fit_hrf)
+
+    def plot_prf_timecourse(self, vox_nr=None, vox_range=None, save=False, save_dir=None, ext="png", overlap=True, **kwargs):
 
         if vox_range == None:
+            vox_range = [vox_nr,vox_nr+1]
+
+        self.voxel_data = {}
+        for vox_id in range(*vox_range):
+
             if save:
-                fname = opj(os.path.dirname(self.prf_params), f"plot_vox-{vox_id}.{ext}")
+                if save_dir == None:
+                    save_dir = os.path.dirname(self.prf_params)
+                
+                fname = opj(save_dir, f"plot_vox-{vox_id}.{ext}")
             else:
                 fname = None
-            pars,_,_ = self.model_fit.plot_vox(vox_nr=vox_id, 
-                                               model=self.model,
-                                               transpose=False, 
-                                               axis_type="time",
-                                               save_as=fname,
-                                               resize_pix=270,
-                                               title='pars',
-                                               **kwargs)
 
-        else:
-            for vox_id in range(*vox_range):
-                if save:
-                    fname = opj(os.path.dirname(self.prf_params), f"plot_vox-{vox_id}.{ext}")
-                else:
-                    fname = None
-
-                pars,_,_ = self.model_fit.plot_vox(vox_nr=vox_id, 
-                                                   model=self.model,
-                                                   transpose=False, 
-                                                   axis_type="time",
-                                                   save_as=fname,
-                                                   resize_pix=270,
-                                                   title='pars',                                                   
-                                                   **kwargs)
+            # 0th el = params
+            # 1st el = prf_array
+            # 2nd el = timecourse
+            self.voxel_data[vox_id] = self.model_fit.plot_vox(vox_nr=vox_id, 
+                                                              model=self.model,
+                                                              transpose=False, 
+                                                              axis_type="time",
+                                                              save_as=fname,
+                                                              resize_pix=270,
+                                                              title='pars',
+                                                              **kwargs)
 
         # target pRF
         self.target_obj = prf.CollectSubject(subject=f"sub-{self.file_components['sub']}",
@@ -705,5 +727,67 @@ class pRFResults():
                                              model=self.model)
 
         if save:
-            fname = opj(os.path.dirname(self.prf_params), f"plot_vox-target.{ext}")
-            self.target_obj.target_prediction_prf(save_as=fname)
+            if save_dir == None:
+                save_dir = os.path.dirname(self.prf_params)
+
+            fname = opj(save_dir, f"plot_vox-target.{ext}")
+        else:
+            fname = None
+
+        self.target_obj.target_prediction_prf(save_as=fname)
+
+        # plot overlap with target vertex
+        if overlap:
+
+            fig = plt.figure(figsize=(len(self.voxel_data)*6,6))
+            gs = fig.add_gridspec(1,len(self.voxel_data))
+
+            for ix, vox in enumerate(self.voxel_data):
+                pars = self.voxel_data[vox][0]
+                prf_line = self.voxel_data[vox][1]
+
+                # get target pRF from ses-1
+                prf_target = self.target_obj.prf_array.copy()
+
+                # create different colormaps
+                colors = ["#DE3163", "#6495ED"]
+                cmap1 = utils.make_binary_cm(colors[0])
+                cmap2 = utils.make_binary_cm(colors[1])
+                cmaps = [cmap1, cmap2]
+                
+                # get distance of pRF-centers
+                dist = prf.distance_centers(self.target_obj.target_params, pars)
+
+                # initiate and plot figure
+                axs = fig.add_subplot(gs[ix])
+                for ix, obj in enumerate([prf_target,prf_line]):
+                    plotting.LazyPRF(obj, 
+                                    vf_extent=self.target_obj.settings['vf_extent'], 
+                                    ax=axs, 
+                                    cmap=cmaps[ix], 
+                                    cross_color='k', 
+                                    alpha=0.5, 
+                                    title=f"Distance = {round(dist, 2)} dva",
+                                    font_size=22,
+                                    shrink_factor=0.9,
+                                    **kwargs)
+
+
+            # create custom legend
+            legend_elements = [Line2D([0],[0], marker='o', color='w', label='target pRF', mfc=colors[0], markersize=15, alpha=0.3),
+                            Line2D([0],[0], marker='o', color='w', label='line pRF', mfc=colors[1], markersize=15, alpha=0.3)]
+
+            L = fig.legend(handles=legend_elements, frameon=False, fontsize=18, loc='lower right')
+            plt.setp(L.texts, family='Arial')
+            plt.tight_layout()
+
+            if save:
+                # save img
+                if save_dir == None:
+                    save_dir = os.path.dirname(self.prf_params)
+                
+                img = opj(save_dir, f'prf_overlap.{ext}')
+                print(f"Writing {img}")
+                fig.savefig(img, bbox_inches='tight')
+            else:
+                plt.show()
