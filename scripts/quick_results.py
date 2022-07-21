@@ -5,6 +5,7 @@ import os
 import sys, getopt
 from pRFline import fitting
 from linescanning import utils
+from pathlib import Path
 opj = os.path.join
 
 def main(argv):
@@ -17,13 +18,15 @@ def main(argv):
     ----------
     -s <subject ID>     subject ID as used throughout the pipeline (e.g., 'sub-001')
     -n <session ID>     session ID you'd like to inspect (e.g., 2)
-    -r <range>          voxel range to plot the predictions from (default = [359,365])
+    -r|--range <range>  voxel range to plot the predictions from (default = [359,365])
+    -v|--vox <vox_nr>   plot single voxel. Mutually exclusive with `-r|--range`
     -x|--xkcd           use xkcd-format for plotting
     --pdf               save individual figures as pdf
     --png               save individual figures as png
     --svg               save individual figures as svg [default]        
     --hrf               signifies that we have fitted the HRF during fitting, makes sure we select the correct parameter file
     --np                use numpy-output from :class:`linescanning.prf.pRFmodelFitting`, rather than the pickle-output
+    --epi               signifies that we should include *acq-3DEPI* in our search for pRF-parameters
 
     Returns
     ----------
@@ -32,20 +35,23 @@ def main(argv):
     Example
     ----------
     >>> # fetch results of pRF-estimation with HRF
-    >>> python inspect_results.py -s sub-002 -n 2 --hrf
+    >>> python quick_results.py -s sub-002 -n 2 --hrf
     """
 
     subject     = None
     session     = None
     plot_range  = [359,365]
+    plot_vox    = None
     plot_xkcd   = False
     ext         = "svg"
     fit_hrf     = False
+    output_dir  = None
     save        = False
     look_for    = "pkl"
+    acq         = None
 
     try:
-        opts = getopt.getopt(argv,"xhs:n:r:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np"])[0]
+        opts = getopt.getopt(argv,"xhs:n:r:o:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np", "epi", "vox=", "out="])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -59,10 +65,14 @@ def main(argv):
             subject = arg            
         elif opt in ("-n", "--ses"):
             session = arg
+        elif opt in ("-o", "--out"):
+            output_dir = arg            
         elif opt in ("-r", "--range"):
             plot_range = ast.literal_eval(arg)
         elif opt in ("-x", "--xkcd"):
             plot_xkcd = True
+        elif opt in ("-v", "--vox"):
+            plot_vox = int(arg)
         elif opt in ("--pdf"):
             ext = "pdf"
         elif opt in ("--png"):
@@ -70,7 +80,11 @@ def main(argv):
         elif opt in ("--svg"):
             ext = "svg"           
         elif opt in ("--np"):
-            look_for = "npy"                            
+            look_for = "npy"
+        elif opt in ("--epi"):
+            acq = ["acq"]
+        elif opt in ("--hrf"):
+            fit_hrf = True            
     
     if len(argv) == 0:
         print(main.__doc__)
@@ -83,14 +97,18 @@ def main(argv):
     prf_new     = opj(deriv_dir, 'prf', subject, f"ses-{session}")
 
     # fetch parameters with/without HRF
+    search_for = ["model-norm", "stage-iter", f"params.{look_for}"]
     if fit_hrf:
-        pars = utils.get_file_from_substring(["model-norm", "stage-iter", "hrf-true", f"params.{look_for}"], prf_new)
+        search_for += ["hrf-true"]
+        exclude = None
     else:
-        pars = utils.get_file_from_substring(["model-norm", "stage-iter", f"params.{look_for}"], prf_new, exclude="hrf-true")
+        exclude = "hrf-true"
 
-    # check if list and if so, select first element
-    if isinstance(pars, list):
-        pars = pars[0]
+    if isinstance(acq, list):
+        search_for += acq
+
+    # search for parameters    
+    pars = utils.get_file_from_substring(search_for, prf_new, exclude=exclude)
 
     # plop into pRFResults object
     results = fitting.pRFResults(pars, verbose=True)
@@ -98,8 +116,23 @@ def main(argv):
     # save stuff if extension is given
     if ext != None:
         save = True
+        if output_dir == None:
+            module_path = Path(fitting.__file__)
+            output_dir = module_path.parents[1]/'results'/subject
+
+            # make directory
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+    # set range to None if we received single voxel
+    if plot_vox != None:
+        plot_range = None
         
-    results.plot_prf_timecourse(vox_range=plot_range, xkcd=plot_xkcd, save=save, ext=ext)
+    results.plot_prf_timecourse(vox_nr=plot_vox,
+                                vox_range=plot_range, 
+                                xkcd=plot_xkcd, 
+                                save=save,
+                                save_dir=str(output_dir), 
+                                ext=ext)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
