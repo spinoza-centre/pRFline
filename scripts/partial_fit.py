@@ -36,6 +36,7 @@ def main(argv):
     --fsnative          fit in FSNative space
     --fsaverage         fit in FSAverage space
     --hrf               fit HRF with the pRFs
+    --no-fit            only do preprocessing, exit before `fit()`-call
 
     Returns
     ----------
