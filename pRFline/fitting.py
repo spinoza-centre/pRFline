@@ -38,28 +38,30 @@ class FitPartialFOV:
     Example
     ----------
     >>> func_files = get_file_from_substring(["hemi-LR", "bold.npy"], func_dir)
-    >>> model_fit = fitting.FitPartialFOV(func_files=func_files,
-    >>>                                   output_dir=output_dir,
-    >>>                                   TR=1.111,
-    >>>                                   log_dir=log_dir,
-    >>>                                   stage='grid+iter',
-    >>>                                   model=model,
-    >>>                                   verbose=verbose)
+    >>> model_fit = fitting.FitPartialFOV(
+    >>>     func_files=func_files,
+    >>>     output_dir=output_dir,
+    >>>     TR=1.111,
+    >>>     log_dir=log_dir,
+    >>>     stage='grid+iter',
+    >>>     model=model,
+    >>>     verbose=verbose)
     >>> model_fit.fit()
     """
 
-    def __init__(self, 
-                 func_files, 
-                 TR=1.111, 
-                 log_dir=None, 
-                 output_base=None, 
-                 output_dir=None, 
-                 verbose=False, 
-                 fit_hrf=False, 
-                 standardization="psc", 
-                 rsq_threshold=None, 
-                 n_pix=100,
-                 **kwargs):
+    def __init__(
+        self, 
+        func_files, 
+        TR=1.111, 
+        log_dir=None, 
+        output_base=None, 
+        output_dir=None, 
+        verbose=False, 
+        fit_hrf=False, 
+        standardization="psc", 
+        rsq_threshold=None, 
+        n_pix=100,
+        **kwargs):
 
         self.func_files         = func_files
         self.verbose            = False
@@ -115,17 +117,19 @@ class FitPartialFOV:
             self.prepare_design(**kwargs)
         
         # stage 1 - no HRF
-        self.stage1 = prf.pRFmodelFitting(self.data.T,
-                                          design_matrix=self.design, 
-                                          TR=self.TR, 
-                                          model=self.model, 
-                                          stage=self.stage, 
-                                          verbose=self.verbose,
-                                          output_dir=self.output_dir,
-                                          output_base=self.output_base,
-                                          write_files=True,
-                                          rsq_threshold=self.rsq_threshold,
-                                          **kwargs)
+        self.stage1 = prf.pRFmodelFitting(
+            self.data.T,
+            design_matrix=self.design, 
+            TR=self.TR, 
+            model=self.model, 
+            stage=self.stage, 
+            verbose=self.verbose,
+            output_dir=self.output_dir,
+            output_base=self.output_base,
+            write_files=True,
+            rsq_threshold=self.rsq_threshold,
+            fix_bold_baseline=True,
+            **kwargs)
 
         # stage can be 'grid', 'iter' or 'grid+iter'
         if "iter" in self.stage:
@@ -134,7 +138,7 @@ class FitPartialFOV:
             used_stage = "grid"
 
         # check if params-file already exists
-        self.pars_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+        self.pars_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.pkl")
         # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
         if not os.path.exists(self.pars_file):
             if self.verbose:
@@ -177,22 +181,24 @@ class FitPartialFOV:
             self.output_base += "_hrf-true"
 
             # initiate fitter object with previous fitter
-            self.stage2 = prf.pRFmodelFitting(self.data.T, 
-                                              design_matrix=self.design, 
-                                              TR=self.stage1.TR, 
-                                              model=self.model, 
-                                              stage=self.stage, 
-                                              verbose=self.verbose,
-                                              fit_hrf=True,
-                                              output_dir=self.output_dir,
-                                              output_base=self.output_base,
-                                              write_files=True,                                
-                                              previous_gaussian_fitter=prev_fitter,
-                                              old_params=old_pars)
+            self.stage2 = prf.pRFmodelFitting(
+                self.data.T, 
+                design_matrix=self.design, 
+                TR=self.stage1.TR, 
+                model=self.model, 
+                stage=self.stage, 
+                verbose=self.verbose,
+                fit_hrf=True,
+                output_dir=self.output_dir,
+                output_base=self.output_base,
+                write_files=True,                                
+                previous_gaussian_fitter=prev_fitter,
+                fix_bold_baseline=True,
+                old_params=old_pars)
 
 
             # check if params-file already exists
-            self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+            self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.pkl")
             # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
             if not os.path.exists(self.hrf_file):
                 if self.verbose:
@@ -219,12 +225,13 @@ class FitPartialFOV:
             if self.verbose:
                 print(f"Using {self.log_dir} for design")
 
-        self.design = prf.create_line_prf_matrix(self.log_dir, 
-                                                 stim_duration=self.duration, 
-                                                 nr_trs=self.data.shape[0],
-                                                 stim_at_half_TR=True,
-                                                 n_pix=self.n_pix,
-                                                 TR=self.TR)
+        self.design = prf.create_line_prf_matrix(
+            self.log_dir, 
+            stim_duration=self.duration, 
+            nr_trs=self.data.shape[0],
+            stim_at_half_TR=True,
+            n_pix=self.n_pix,
+            TR=self.TR)
 
         if self.verbose:
             print(f"Design matrix has shape: {self.design.shape}")
@@ -247,11 +254,12 @@ class FitPartialFOV:
             else:
                 raise ValueError(f"Unknown input type {type(self.func_files)}. Must be a array/string pointing to an existing file or a list of files/arrays")
             
-        self.partial = dataset.Dataset(self.func_files,
-                                       TR=self.TR,
-                                       use_bids=True,
-                                       standardization=self.standardization,
-                                       verbose=self.verbose)
+        self.partial = dataset.Dataset(
+            self.func_files,
+            TR=self.TR,
+            use_bids=True,
+            standardization=self.standardization,
+            verbose=self.verbose)
 
         # fetch data and filter out NaNs
         self.df_data = self.partial.fetch_fmri()
@@ -300,17 +308,13 @@ class FitLines(dataset.Dataset):
     Example
     ----------
     >>> func_files = get_file_from_substring(["task-pRF", "bold.npy"], func_dir)
-    >>> model_fit = fitting.FitLines(func_files=func_files,
-    >>>                              output_dir=output_dir,
-    >>>                              TR=0.105,
-    >>>                              low_pass=True,
-    >>>                              high_pass=True,
-    >>>                              window_size=19,
-    >>>                              poly_order=3,
-    >>>                              log_dir=log_dir,
-    >>>                              stage='grid',
-    >>>                              model='norm',
-    >>>                              verbose=True)
+    >>> model_fit = fitting.FitLines(
+    >>>     func_files=func_files,
+    >>>     output_dir=output_dir,
+    >>>     TR=0.105,
+    >>>     log_dir=log_dir,
+    >>>     model='norm',
+    >>>     verbose=True)
     >>> model_fit.fit()
 
     Notes
@@ -318,24 +322,25 @@ class FitLines(dataset.Dataset):
     Because we also need to filter our data in this class, we can specify any argument accepted by :class:`linescanning.dataset.Dataset` via `kwargs`.
     """
 
-    def __init__(self, 
-                 func_files, 
-                 TR=0.105, 
-                 log_dir=None, 
-                 output_base=None, 
-                 output_dir=None, 
-                 verbose=False, 
-                 baseline_duration=30, 
-                 iter_duration=160, 
-                 n_iterations=3,
-                 strip_baseline=True, 
-                 ribbon=None,
-                 average=True,
-                 rsq_threshold=None,
-                 fit_hrf=False,
-                 n_pix=100,
-                 design_only=False,
-                 **kwargs):
+    def __init__(
+        self, 
+        func_files, 
+        TR=0.105, 
+        log_dir=None, 
+        output_base=None, 
+        output_dir=None, 
+        verbose=False, 
+        baseline_duration=30, 
+        iter_duration=160, 
+        n_iterations=3,
+        strip_baseline=True, 
+        ribbon=None,
+        average=True,
+        rsq_threshold=None,
+        fit_hrf=False,
+        n_pix=100,
+        design_only=False,
+        **kwargs):
 
         self.func_files         = func_files
         self.verbose            = False
@@ -417,17 +422,19 @@ class FitLines(dataset.Dataset):
             self.prepare_design(**kwargs)
         
         # stage 1 - no HRF
-        self.stage1 = prf.pRFmodelFitting(self.data_for_fitter.T,
-                                          design_matrix=self.design, 
-                                          TR=self.TR, 
-                                          model=self.model, 
-                                          stage=self.stage, 
-                                          verbose=self.verbose,
-                                          output_dir=self.output_dir,
-                                          output_base=self.output_base,
-                                          write_files=True,
-                                          rsq_threshold=self.rsq_threshold,
-                                          **kwargs)
+        self.stage1 = prf.pRFmodelFitting(
+            self.data_for_fitter.T,
+            design_matrix=self.design, 
+            TR=self.TR, 
+            model=self.model, 
+            stage=self.stage, 
+            verbose=self.verbose,
+            output_dir=self.output_dir,
+            output_base=self.output_base,
+            write_files=True,
+            rsq_threshold=self.rsq_threshold,
+            fix_bold_baseline=True,
+            **kwargs)
 
         # stage can be 'grid', 'iter' or 'grid+iter'
         if "iter" in self.stage:
@@ -436,7 +443,7 @@ class FitLines(dataset.Dataset):
             used_stage = "grid"
 
         # check if params-file already exists
-        self.pars_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+        self.pars_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.pkl")
         # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
         if not os.path.exists(self.pars_file):
             if self.verbose:
@@ -479,22 +486,24 @@ class FitLines(dataset.Dataset):
             self.output_base += "_hrf-true"
 
             # initiate fitter object with previous fitter
-            self.stage2 = prf.pRFmodelFitting(self.data_for_fitter.T, 
-                                              design_matrix=self.design, 
-                                              TR=self.stage1.TR, 
-                                              model=self.model, 
-                                              stage=self.stage, 
-                                              verbose=self.verbose,
-                                              fit_hrf=True,
-                                              output_dir=self.output_dir,
-                                              output_base=self.output_base,
-                                              write_files=True,                                
-                                              previous_gaussian_fitter=prev_fitter,
-                                              old_params=old_pars)
+            self.stage2 = prf.pRFmodelFitting(
+                self.data_for_fitter.T, 
+                design_matrix=self.design, 
+                TR=self.stage1.TR, 
+                model=self.model, 
+                stage=self.stage, 
+                verbose=self.verbose,
+                fit_hrf=True,
+                output_dir=self.output_dir,
+                output_base=self.output_base,
+                write_files=True,                                
+                previous_gaussian_fitter=prev_fitter,
+                fix_bold_baseline=True,
+                old_params=old_pars)
 
 
         # check if params-file already exists
-        self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.npy")
+        self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{used_stage}_desc-prf_params.pkl")
         # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
         if not os.path.exists(self.hrf_file):
             if self.verbose:
@@ -521,13 +530,14 @@ class FitLines(dataset.Dataset):
             if self.verbose:
                 print(f"Using {self.log_dir} for design")
 
-            self.design = prf.create_line_prf_matrix(self.log_dir, 
-                                                     stim_duration=0.25,
-                                                     nr_trs=self.avg_iters_baseline.shape[0],
-                                                     TR=0.105,
-                                                     verbose=self.verbose,
-                                                     n_pix=self.n_pix,
-                                                     **kwargs)
+            self.design = prf.create_line_prf_matrix(
+                self.log_dir, 
+                stim_duration=0.25,
+                nr_trs=self.avg_iters_baseline.shape[0],
+                TR=0.105,
+                verbose=self.verbose,
+                n_pix=self.n_pix,
+                **kwargs)
 
             # strip design from its baseline
             if self.strip_baseline:
@@ -762,15 +772,15 @@ class pRFResults():
                 axs = fig.add_subplot(gs[ix])
                 for ix, obj in enumerate([prf_target,prf_line]):
                     plotting.LazyPRF(obj, 
-                                    vf_extent=self.target_obj.settings['vf_extent'], 
-                                    ax=axs, 
-                                    cmap=cmaps[ix], 
-                                    cross_color='k', 
-                                    alpha=0.5, 
-                                    title=f"Distance = {round(dist, 2)} dva",
-                                    font_size=22,
-                                    shrink_factor=0.9,
-                                    **kwargs)
+                                     vf_extent=self.target_obj.settings['vf_extent'], 
+                                     ax=axs, 
+                                     cmap=cmaps[ix], 
+                                     cross_color='k', 
+                                     alpha=0.5, 
+                                     title=f"Distance = {round(dist, 2)} dva",
+                                     font_size=22,
+                                     shrink_factor=0.9,
+                                     **kwargs)
 
 
             # create custom legend
