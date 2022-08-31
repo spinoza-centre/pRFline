@@ -41,6 +41,7 @@ def main(argv):
     --dm                            stop process after making the design matrix. One step further compared to `-q|--qa` or `--no-fit`, which stop *before* the creation of design matrix
     --hrf                           fit the HRF with the pRF-parameters as implemented in `prfpy`    
     -g                              run model fitter with gray matter voxels only (based on the average tissue probabilities across runs)
+    --tr                            TR of the experiment (default: 0.105)
 
     Returns
     ----------
@@ -90,10 +91,11 @@ def main(argv):
     do_acompcor     = True
     n_pix           = 100
     stop_at_dm      = False
+    t_r             = 0.105
 
     # long options without argument: https://stackoverflow.com/a/54170513
     try:
-        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no-fit"])[0]
+        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no-fit", "tr="])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -141,6 +143,8 @@ def main(argv):
             n_pix = arg
         elif opt in ("--dm"):
             stop_at_dm = True
+        elif opt in ("--tr"):
+            t_r = float(arg)
     
     if len(argv) == 0:
         print(main.__doc__)
@@ -194,18 +198,32 @@ def main(argv):
         settings = yaml.safe_load(f_in)
 
     # reconstruct design in LineExps/lineprf/session.py
-    design          = settings['design']
-    sweep_trials    = int(design.get('bar_steps')*2 + (design.get('inter_sweep_blank')//design.get('stim_duration')))
-    rest_trials     = int(design.get('blank_duration')//design.get('stim_duration'))
-    block_trials    = int(sweep_trials*2 + rest_trials)
-    part_trials     = int(block_trials*2 + rest_trials*2)
-    iter_trials     = int(part_trials*design.get('stim_repetitions'))
-    t_r             = settings['design'].get('repetition_time')
-    iter_duration   = iter_trials*design.get('stim_duration')
+    design = settings['design']
+    stimuli = settings['stimuli']
     
+    # old version
+    if "bar_widths" in list(stimuli.keys()):
+        sweep_trials    = int(design.get('bar_steps')*2 + (design.get('inter_sweep_blank')//design.get('stim_duration')))
+        rest_trials     = int(design.get('inter_sweep_blank')//design.get('stim_duration'))
+        block_trials    = int(sweep_trials*2 + rest_trials)
+        part_trials     = int(block_trials*2 + rest_trials*2)
+        iter_trials     = int(part_trials*design.get('stim_repetitions'))
+        t_r             = design.get('repetition_time')
+        iter_duration   = iter_trials*design.get('stim_duration')
+    else:
+        # new version
+        bar_dirs            = stimuli.get("bar_directions")
+        bar_widths          = stimuli.get("bar_widths")
+        bar_steps           = design.get("bar_steps")
+        stim_duration       = design.get("stim_duration")
+        inter_sweep_blank   = design.get("inter_sweep_blank")
+        nr_sweeps           = bar_dirs*bar_widths
+
+        iter_duration = nr_sweeps*(stim_duration*bar_steps)+(nr_sweeps*inter_sweep_blank)
+
     # check if we got n_iter as argument:
     if n_iter == None:
-        n_iter = settings['design'].get('stim_repetitions')
+        n_iter = design.get('stim_repetitions')
     else:
         n_iter = int(n_iter)
 
@@ -226,32 +244,32 @@ def main(argv):
 
     #---------------------------------------------------------------------------------------
     # initiate model fitting
-    model_fit = fitting.FitLines(func_files=func_files,
-                                 TR=t_r,
-                                 filter_strategy=filter_strat,
-                                 window_size=11,
-                                 log_dir=log_dir,
-                                 stage='grid+iter',
-                                 model=model,
-                                 baseline_duration=design.get('start_duration'),
-                                 iter_duration=iter_duration,
-                                 n_iterations=n_iter,
-                                 verbose=verbose,
-                                 strip_baseline=strip_baseline,
-                                 acompcor=do_acompcor,
-                                 ref_slice=ref_slices,
-                                 filter_pca=filter_pca,
-                                 rsq_threshold=rsq_thresh,
-                                 ses1_2_ls=ses_trafo,
-                                 run_2_run=run_trafos,
-                                 output_dir=os.path.dirname(output_dir),
-                                 output_base=output_base_prf,
-                                 voxel_cutoff=300,
-                                 ribbon=gm_only,
-                                 fit_hrf=fit_hrf,
-                                 report=make_report,
-                                 n_pix=n_pix,
-                                 design_only=stop_at_dm)
+    model_fit = fitting.FitLines(
+        func_files=func_files,
+        TR=t_r,
+        filter_strategy=filter_strat,
+        log_dir=log_dir,
+        stage='iter',
+        model=model,
+        baseline_duration=design.get('start_duration'),
+        iter_duration=iter_duration,
+        n_iterations=n_iter,
+        verbose=verbose,
+        strip_baseline=strip_baseline,
+        acompcor=do_acompcor,
+        ref_slice=ref_slices,
+        filter_pca=filter_pca,
+        rsq_threshold=rsq_thresh,
+        ses1_2_ls=ses_trafo,
+        run_2_run=run_trafos,
+        output_dir=os.path.dirname(output_dir),
+        output_base=output_base_prf,
+        voxel_cutoff=300,
+        ribbon=gm_only,
+        fit_hrf=fit_hrf,
+        report=make_report,
+        n_pix=n_pix,
+        design_only=stop_at_dm)
 
     # fit
     if not qa and not stop_at_dm:
