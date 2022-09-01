@@ -34,10 +34,7 @@ For the line-experiments, we can run `line_fit.py`, which internally preprocesse
 # subject/session information
 subID="007"
 sesID=2
-
-# defaults
 iters=2
-filter_pca=0.18
 
 # directories
 bids_dir=${DIR_DATA_HOME}/sub-${subID}/ses-${sesID}
@@ -50,15 +47,15 @@ ses_trafo=${DIR_DATA_DERIV}/pycortex/sub-${subID}/transforms/sub-${subID}_from-s
 job="qsub -N line_${subID} -pe smp 5 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs"
 
 # actual call (make sure correct environment is loaded!)
-${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --filter_pca ${filter_pca} -v
+${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} -v
 ```
 
 We can also add the `--hrf` flag to fit the HRF during pRF-fitting. If you've ran standard fit already, you can run the same command with the `--hrf` flag, and the old parameters will be used as starting point. So it doesn't start fitting from scratch with _more_ parameters.
 ```bash
-${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --filter_pca ${filter_pca} --verbose --hrf
+${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --hrf
 ```
 
 If you quickly want to test if stuff works without making a new `fMRIPrep`-like report or `aCompCor`, you can do:
 ```bash
-${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --filter_pca ${filter_pca} --verbose --hrf --no_acompcor --no_report
+${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --hrf --no_acompcor --no_report
 ```
