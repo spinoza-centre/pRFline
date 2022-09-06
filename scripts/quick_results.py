@@ -142,7 +142,8 @@ def main(argv):
             xkcd=plot_xkcd, 
             save=save,
             save_dir=str(output_dir), 
-            ext=ext)
+            ext=ext,
+            font_size=26)
 
     if depth:
         measures = 'all'
