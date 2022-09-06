@@ -154,8 +154,8 @@ def main(argv):
             save_dir=str(output_dir), 
             measures=measures,
             ext=ext,
-            font_size=20,
-            label_size=14,
+            font_size=30,
+            label_size=20,
             set_xlim_zero=False,
             cmap="inferno")
 
