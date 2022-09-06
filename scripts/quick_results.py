@@ -145,8 +145,8 @@ def main(argv):
             ext=ext)
 
     if depth:
-        measures = 'all'
-        measures = ['prf_size', 'r2', 'size ratio']
+        measures = 'all' # x,y,prf_size,prf_ampl,bold_bsl,neur_bsl,surr_ampl,surr_size,surr_bsl,A,B,C,D,ratio (B/D),r2,size ratio,suppression index
+        measures = ['prf_size', 'r2', 'size ratio', 'suppression index']
         results.plot_depth(
             vox_range=plot_range, 
             xkcd=plot_xkcd, 
