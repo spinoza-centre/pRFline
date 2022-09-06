@@ -27,6 +27,8 @@ def main(argv):
     --hrf               signifies that we have fitted the HRF during fitting, makes sure we select the correct parameter file
     --np                use numpy-output from :class:`linescanning.prf.pRFmodelFitting`, rather than the pickle-output
     --epi               signifies that we should include *acq-3DEPI* in our search for pRF-parameters
+    --no_overlap        do not create the overlap plot between target and line-scanning pRF
+    --no_depth          do not create the plot with parameters across depth
 
     Returns
     ----------
@@ -49,9 +51,11 @@ def main(argv):
     save        = False
     look_for    = "pkl"
     acq         = None
+    overlap     = True
+    depth       = True
 
     try:
-        opts = getopt.getopt(argv,"xhs:n:r:o:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np", "epi", "vox=", "out="])[0]
+        opts = getopt.getopt(argv,"xhs:n:r:o:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np", "epi", "vox=", "out=", "no_depth", "no_overlap"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -84,7 +88,11 @@ def main(argv):
         elif opt in ("--epi"):
             acq = ["acq"]
         elif opt in ("--hrf"):
-            fit_hrf = True            
+            fit_hrf = True
+        elif opt in ("--no_overlap"):
+            overlap = False
+        elif opt in ("--no_depth"):
+            depth = False
     
     if len(argv) == 0:
         print(main.__doc__)
@@ -126,13 +134,30 @@ def main(argv):
     # set range to None if we received single voxel
     if plot_vox != None:
         plot_range = None
-        
-    results.plot_prf_timecourse(vox_nr=plot_vox,
-                                vox_range=plot_range, 
-                                xkcd=plot_xkcd, 
-                                save=save,
-                                save_dir=str(output_dir), 
-                                ext=ext)
+    
+    if overlap:
+        results.plot_prf_timecourse(
+            vox_nr=plot_vox,
+            vox_range=plot_range, 
+            xkcd=plot_xkcd, 
+            save=save,
+            save_dir=str(output_dir), 
+            ext=ext)
+
+    if depth:
+        measures = 'all'
+        measures = ['prf_size', 'r2', 'size ratio']
+        results.plot_depth(
+            vox_range=plot_range, 
+            xkcd=plot_xkcd, 
+            save=save,
+            save_dir=str(output_dir), 
+            measures=measures,
+            ext=ext,
+            font_size=20,
+            label_size=14,
+            set_xlim_zero=False,
+            cmap="inferno")
 
 if __name__ == "__main__":
     main(sys.argv[1:])

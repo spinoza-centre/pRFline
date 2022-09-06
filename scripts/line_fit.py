@@ -27,25 +27,26 @@ def main(argv):
 
     Parameters
     ----------
-    -b|--bids_dir   <bids_dir>      path where 'func' and 'anat' folders live
+    -b|--bids_dir <bids_dir>        path where 'func' and 'anat' folders live
     -o|--output_dir <output_dir>    output directory + basename for output; some stuff about model type, stage, and parameter type will be appended
-    -l|--log_dir    <log_dir>       directory that contains the "Screenshot"-directory to create the design matrix
-    -r|--run        <run ID>        run identifier in case we don't want to average across runs and fit the pRFs for individual runs
-    -i|--n_iter     <iterations>    the experiment consists of one set of 8 sweeps (1 iteration) that can be repeated multiple times. We can average these iterations by specifying how many iterations we used. By default, the number of iterations will be read from the log-file from ExpTools, which will always be 1 given that we use the directory that has the screenshots. For that, we only need 1 iterations. With this extra flag you can specify how many iterations to consider.
-    -m|--model      <model>         Model type to use, e.g., "gauss" or "norm". Defaults to 'norm'.
-    -v|--verbose                    turn on verbose
+    -l|--log_dir <log_dir>          directory that contains the "Screenshot"-directory to create the design matrix
+    -r|--run <run ID>               run identifier in case we don't want to average across runs and fit the pRFs for individual runs
+    -i|--n_iter <iterations>        the experiment consists of one set of 8 sweeps (1 iteration) that can be repeated multiple times. We can average these iterations by specifying how many iterations we used. By default, the number of iterations will be read from the log-file from ExpTools, which will always be 1 given that we use the directory that has the screenshots. For that, we only need 1 iterations. With this extra flag you can specify how many iterations to consider.
+    -m|--model <model>              Model type to use, e.g., "gauss" or "norm". Defaults to 'norm'.
+    --rsq <float>                   r2-threshold to use during pRF-fitting. Parameters of voxels < threshold will be set to 0
+    --ses_trafo <file>              transformation mapping ses-1 to the closest partial anatomy prior to the corresponding slice of the line-scanning acquisition
+    -h|--help                       print this information
     -q|--qa|--no-fit                do quality control, not full fitting; plots will be stored in the 'anat' folder. Stop *before* creation of design matrix (see `--dm` for quitting process *after* design matrix)
-    --ses_trafo     <file>          transformation mapping ses-1 to the closest partial anatomy prior to the corresponding slice of the line-scanning acquisition
-    --filter_pca    <float>         cutoff frequency for highpass filtering of PCA components. This procedure can ensure that task-related frequencies in the PCA-components do not get removed
-    --rsq           <float>         r2-threshold to use during pRF-fitting. Parameters of voxels < threshold will be set to 0
+    --filter_pca <float>            cutoff frequency for highpass filtering of PCA components. This procedure can ensure that task-related frequencies in the PCA-components do not get removed
     --dm                            stop process after making the design matrix. One step further compared to `-q|--qa` or `--no-fit`, which stop *before* the creation of design matrix
     --hrf                           fit the HRF with the pRF-parameters as implemented in `prfpy`    
     -g                              run model fitter with gray matter voxels only (based on the average tissue probabilities across runs)
     --tr                            TR of the experiment (default: 0.105)
+    -v|--verbose                    turn on verbose
 
     Returns
     ----------
-    pRF-fitting results in the form of *npy-files (including parameters & predictions)
+    Output as per https://linescanning.readthedocs.io/en/latest/classes/prf.html#linescanning.prf.pRFmodelFitting
 
     Example
     ----------
@@ -53,23 +54,22 @@ def main(argv):
     >>> sub=007
     >>> ses=2
     >>> iters=2
-    >>> filter_pca=0.18
     >>> bids_dir=${DIR_DATA_HOME}/sub-${sub}/ses-${ses}
     >>> out_dir=${DIR_DATA_DERIV}/prf/sub-${sub}/ses-${ses}/sub-${sub}_ses-${ses}_task-pRF
     >>> log_dir=log_dir=${DIR_DATA_SOURCE}/sub-${sub}/ses-${ses}/sub-${sub}_ses-${ses}_task-pRF_run-imgs
     >>> ses_trafo=${DIR_DATA_DERIV}/pycortex/sub-${sub}/transforms/sub-${sub}_from-ses1_to-ses${ses}_rec-motion1_desc-genaff.mat
     >>> #
     >>> # run locally, filter PCA-components and verbose
-    >>> python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --filter_pca ${filter_pca} -v 
+    >>> python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} -v 
     >>> #
     >>> # run locally, filter PCA-components, verbose, fit only GM-voxels
-    >>> python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --filter_pca ${filter_pca} -v -g
+    >>> python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} -v -g
     >>> #
     >>> # run QA-only with verbose
-    >>> python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --filter_pca ${filter_pca} -v -q
+    >>> python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} -v -q
     >>> #
     >>> # submit to cluster
-    >>> qsub -N prf_${sub} -pe smp 1 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --filter_pca ${filter_pca} -v
+    >>> qsub -N prf_${sub} -pe smp 1 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} -v
     """
 
     bids_dir        = None
@@ -82,7 +82,7 @@ def main(argv):
     run_trafos      = None
     n_iter          = None
     filter_pca      = 0.2
-    rsq_thresh      = 0.05
+    rsq_thresh      = 0
     qa              = False
     gm_only         = False
     fit_hrf         = False
@@ -95,14 +95,14 @@ def main(argv):
 
     # long options without argument: https://stackoverflow.com/a/54170513
     try:
-        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no-fit", "tr="])[0]
+        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["help", "bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no-fit", "tr="])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
         sys.exit(2)
 
     for opt, arg in opts: 
-        if opt == '-h':
+        if opt in ("-h", "--help"):
             print(main.__doc__)
             sys.exit()
         elif opt in ("-b", "--bids_dir"):
@@ -188,7 +188,7 @@ def main(argv):
     # check length if lists
     if do_acompcor:
         if len(ref_slices) != 0:
-            if len(run_trafos) != len(ref_slices):
+            if len(run_trafos) != len(ref_slices):      
                 raise ValueError(f"number of transformation files ({len(run_trafos)}) does not match number of anatomical files ({len(ref_slices)})")
 
     #---------------------------------------------------------------------------------------
@@ -202,7 +202,7 @@ def main(argv):
     stimuli = settings['stimuli']
     
     # old version
-    if "bar_widths" in list(stimuli.keys()):
+    if not "bar_widths" in list(stimuli.keys()):
         sweep_trials    = int(design.get('bar_steps')*2 + (design.get('inter_sweep_blank')//design.get('stim_duration')))
         rest_trials     = int(design.get('inter_sweep_blank')//design.get('stim_duration'))
         block_trials    = int(sweep_trials*2 + rest_trials)
@@ -244,7 +244,7 @@ def main(argv):
 
     #---------------------------------------------------------------------------------------
     # initiate model fitting
-    model_fit = fitting.FitLines(
+    model_fit = fitting.FitpRFs(
         func_files=func_files,
         TR=t_r,
         filter_strategy=filter_strat,
@@ -269,7 +269,8 @@ def main(argv):
         fit_hrf=fit_hrf,
         report=make_report,
         n_pix=n_pix,
-        design_only=stop_at_dm)
+        design_only=stop_at_dm,
+        is_lines=True)
 
     # fit
     if not qa and not stop_at_dm:

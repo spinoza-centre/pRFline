@@ -20,23 +20,20 @@ def main(argv):
 
     Parameters
     ----------
-    -b <bids_dir>       path pointing to derivatives-folder containing the input from `fMRIPrep` and the 
-                        output for pRFs. Overrules <func_dir> and <output_dir>
-    -f <func_dir>       path to where the functional files live. We'll search for the "acq-3DEPI" 
-                        tag. If multiple files are found, we'll run preprocessing for them all.
-    -o <output_dir>     output directory; should be project root directory with <subject>/<ses-X>/
-                        func.
-    -l <log_dir>        directory that contains the "Screenshot"-directory to create the design matrix
-    --tr                set manual TR in seconds [default = 1.111s]
-    -v|--verbose        turn on verbose
-    -g|--gauss          run model fitter with 'gauss' model instead of 'norm'. Will do grid+iter fit
-                        regardless of model choice
-    --psc               use percent signal change as standardization [default]
-    --zscore            use zscore as standardization
-    --fsnative          fit in FSNative space
-    --fsaverage         fit in FSAverage space
-    --hrf               fit HRF with the pRFs
-    --no-fit            only do preprocessing, exit before `fit()`-call
+    -b|--bids_dir <bids_dir>        path where 'func' and 'anat' folders live
+    -f|--func_dir <func_dir>        path to where the functional files live. We'll search for the "acq-3DEPI" tag. If multiple files are found, we'll run preprocessing for them all.
+    -o|--output_dir <output_dir>    output directory + basename for output; some stuff about model type, stage, and parameter type will be appended
+    -l|--log_dir <log_dir>          directory that contains the "Screenshot"-directory to create the design matrix
+    -t|--tr <value>                 set manual TR in seconds [default = 1.111s]
+    -v|--verbose                    turn on verbose
+    -g|--gauss                      run model fitter with 'gauss' model instead of 'norm'. Will do grid+iter fit regardless of model choice
+    -h|--help                       print this information
+    --psc                           use percent signal change as standardization [default]
+    --zscore                        use zscore as standardization
+    --fsnative                      fit in FSNative space
+    --fsaverage                     fit in FSAverage space
+    --hrf                           fit HRF with the pRFs
+    --no-fit                        only do preprocessing, exit before `fit()`-call
 
     Returns
     ----------
@@ -71,19 +68,19 @@ def main(argv):
     standardization = "psc"
     space           = 'func'
     TR              = 1.111
-    rsq_thresh      = 0.05
+    rsq_thresh      = 0
     n_pix           = 100
     fit             = True
 
     try:
-        opts = getopt.getopt(argv,"gvh:b:s:n:f:d:o:l:",["bids_dir=", "subject=", "session=", "func_dir=", "output_dir=", "log_dir=", "tr=", "hrf", "verbose", "fsnative", "fsaverage", "rsq=", "n_pix=", "no-fit"])[0]
+        opts = getopt.getopt(argv,"gvh:b:s:n:f:d:o:l:t:",["help", "bids_dir=", "subject=", "session=", "func_dir=", "output_dir=", "log_dir=", "tr=", "hrf", "verbose", "fsnative", "fsaverage", "rsq=", "n_pix=", "no-fit"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
         sys.exit(2)
 
     for opt, arg in opts:
-        if opt == '-h':
+        if opt in ("-h", "--help"):
             print(main.__doc__)
             sys.exit()
         elif opt in ("-s", "--subject"):
@@ -112,7 +109,7 @@ def main(argv):
             space = "fsaverage"
         elif opt in ("--fsnative"):
             space = "fsnative"     
-        elif opt in ("--tr"):
+        elif opt in ("-t", "--tr"):
             TR = float(arg)           
         elif opt in ("--rsq"):
             rsq_thresh = arg
@@ -121,7 +118,7 @@ def main(argv):
         elif opt in ("--no-fit"):
             fit = False
         elif opt in ("--hrf"):
-            fit_hrf = True            
+            fit_hrf = True
 
     if len(argv) == 0:
         print(main.__doc__)
@@ -178,17 +175,19 @@ def main(argv):
     else:
         func_files = utils.get_file_from_substring([f"space-{space}", "hemi-LR", "bold.func.npy"], file_list)
 
-    model_fit = fitting.FitPartialFOV(func_files=func_files,
-                                      output_dir=output_dir,
-                                      TR=TR,
-                                      log_dir=log_dir,
-                                      stage='grid+iter',
-                                      model=model,
-                                      verbose=verbose,
-                                      fit_hrf=fit_hrf,
-                                      standardization=standardization,
-                                      rsq_threshold=rsq_thresh,
-                                      n_pix=n_pix)
+    model_fit = fitting.FitpRFs(
+        func_files=func_files,
+        output_dir=output_dir,
+        TR=TR,
+        log_dir=log_dir,
+        stage='iter',
+        model=model,
+        verbose=verbose,
+        fit_hrf=fit_hrf,
+        standardization=standardization,
+        rsq_threshold=rsq_thresh,
+        n_pix=n_pix,
+        is_lines=False)
 
     # fit
     if fit:
