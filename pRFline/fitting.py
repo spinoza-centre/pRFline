@@ -492,7 +492,7 @@ class pRFResults():
         else:
             fname = None
 
-        self.target_obj.target_prediction_prf(save_as=fname)
+        self.target_obj.target_prediction_prf(save_as=fname, **kwargs)
 
         # plot overlap with target vertex
         if overlap:
@@ -527,16 +527,16 @@ class pRFResults():
                         cross_color='k', 
                         alpha=0.5, 
                         title=f"Distance = {round(dist, 2)} dva",
-                        font_size=22,
+                        font_size=30,
                         shrink_factor=0.9,
                         **kwargs)
 
             # create custom legend
             legend_elements = [
-                Line2D([0],[0], marker='o', color='w', label='target pRF', mfc=colors[0], markersize=15, alpha=0.3),
-                Line2D([0],[0], marker='o', color='w', label='line pRF', mfc=colors[1], markersize=15, alpha=0.3)]
+                Line2D([0],[0], marker='o', color='w', label='target pRF', mfc=colors[0], markersize=24, alpha=0.3),
+                Line2D([0],[0], marker='o', color='w', label='line pRF', mfc=colors[1], markersize=24, alpha=0.3)]
 
-            L = fig.legend(handles=legend_elements, frameon=False, fontsize=18, loc='lower right')
+            L = fig.legend(handles=legend_elements, frameon=False, fontsize=26, loc='lower right')
             plt.setp(L.texts, family='Arial')
             plt.tight_layout()
 
