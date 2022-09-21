@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-#$ -q long.q@jupiter
+#$ -q all.q@minerva
 #$ -cwd
 #$ -j Y
 #$ -V
 
+import ast
 import os
 import sys, getopt
 from bids import BIDSLayout
@@ -43,6 +44,7 @@ def main(argv):
     -g                              run model fitter with gray matter voxels only (based on the average tissue probabilities across runs)
     --tr                            TR of the experiment (default: 0.105)
     -v|--verbose                    turn on verbose
+    --exclude                       After you've ran the script with `--qa`, you can check the report (unless you ran with `--no_report`) whether you'd like to exclude runs. Excluding runs follows this format: `--exclude 1` (excludes run-1), or comma separated input: `--exclude 2,3` (excludes run-2/3)
 
     Returns
     ----------
@@ -82,7 +84,7 @@ def main(argv):
     run_trafos      = None
     n_iter          = None
     filter_pca      = 0.2
-    rsq_thresh      = 0
+    rsq_thresh      = 0.05
     qa              = False
     gm_only         = False
     fit_hrf         = False
@@ -92,10 +94,11 @@ def main(argv):
     n_pix           = 100
     stop_at_dm      = False
     t_r             = 0.105
+    exclude         = None
 
     # long options without argument: https://stackoverflow.com/a/54170513
     try:
-        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["help", "bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no-fit", "tr="])[0]
+        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:",["help", "bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no-fit", "tr=", "exclude="])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -145,6 +148,12 @@ def main(argv):
             stop_at_dm = True
         elif opt in ("--tr"):
             t_r = float(arg)
+        elif opt in ("--exclude"):
+            exclude = ast.literal_eval(arg)
+            if isinstance(exclude, int):
+                exclude = [exclude]
+            else:
+                exclude = list(exclude)
     
     if len(argv) == 0:
         print(main.__doc__)
@@ -180,6 +189,38 @@ def main(argv):
 
     func_files = get_file_from_substring(func_search, funcs, exclude="acq-3DEPI")
     ref_slices = get_file_from_substring(anat_search, anats)
+
+    # transform string input to list as well
+    if isinstance(func_files, str):
+        func_files = [func_files]
+
+    if isinstance(ref_slices, str):
+        ref_slices = [ref_slices]
+
+    if isinstance(run_trafos, str):
+        run_trafos = [run_trafos]                
+
+    print("\n---------------------------------------------------------------------------------------------------")
+    print(f"line_prf.py - pRF fitting on line-scanning data")
+
+    # excluded runs
+    if isinstance(exclude, list):
+        print(f"Excluding run(s): {exclude}")
+        make_report = False
+        for list_type,ll in zip(["funcs","anats","trafos"], [func_files,ref_slices,run_trafos]):
+            if isinstance(ll, list):
+                for run in exclude:
+                    for ff in ll:
+                        if list_type == "trafos":
+                            target = f"run{run}.txt"
+                        else:
+                            target = f"run-{run}" 
+
+                        if target in ff:
+                            ll.remove(ff)
+
+    # print list of inputs
+    print(*func_files, sep="\n")
 
     # check length if lists
     if len(func_files) != len(ref_slices):
@@ -273,7 +314,7 @@ def main(argv):
         is_lines=True)
 
     # fit
-    if not qa and not stop_at_dm:
+    if not qa:
         model_fit.fit()
 
 if __name__ == "__main__":
