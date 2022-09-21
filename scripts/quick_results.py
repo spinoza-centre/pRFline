@@ -29,6 +29,10 @@ def main(argv):
     --epi               signifies that we should include *acq-3DEPI* in our search for pRF-parameters
     --no_overlap        do not create the overlap plot between target and line-scanning pRF
     --no_depth          do not create the plot with parameters across depth
+    --norm              use normalization parameters [default]
+    --gauss             use Gaussian parameters
+    --dog               use Difference-of-Gaussian parameters
+    --css               use CSS parameters
 
     Returns
     ----------
@@ -53,9 +57,10 @@ def main(argv):
     acq         = None
     overlap     = True
     depth       = True
+    model       = "norm"
 
     try:
-        opts = getopt.getopt(argv,"xhs:n:r:o:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np", "epi", "vox=", "out=", "no_depth", "no_overlap"])[0]
+        opts = getopt.getopt(argv,"xhs:n:r:o:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np", "epi", "vox=", "out=", "no_depth", "no_overlap", "norm", "css", "gauss", "dog"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -93,6 +98,14 @@ def main(argv):
             overlap = False
         elif opt in ("--no_depth"):
             depth = False
+        elif opt in ("--gauss"):
+            model = "gauss"
+        elif opt in ("--norm"):
+            model = "norm"
+        elif opt in ("--css"):
+            model = "css"
+        elif opt in ("--dog"):
+            model = "dog"
     
     if len(argv) == 0:
         print(main.__doc__)
@@ -105,7 +118,7 @@ def main(argv):
     prf_new     = opj(deriv_dir, 'prf', subject, f"ses-{session}")
 
     # fetch parameters with/without HRF
-    search_for = ["model-norm", "stage-iter", f"params.{look_for}"]
+    search_for = [f"model-{model}", "stage-iter", f"params.{look_for}"]
     if fit_hrf:
         search_for += ["hrf-true"]
         exclude = None
@@ -146,7 +159,12 @@ def main(argv):
 
     if depth:
         measures = 'all' # x,y,prf_size,prf_ampl,bold_bsl,neur_bsl,surr_ampl,surr_size,surr_bsl,A,B,C,D,ratio (B/D),r2,size ratio,suppression index
-        measures = ['prf_size', 'r2', 'size ratio', 'suppression index']
+
+        if model == "norm":
+            measures = ['prf_size', 'r2', 'size ratio', 'suppression index']
+        else:
+            measures = ['prf_size', 'r2', 'ecc', 'polar']
+            
         results.plot_depth(
             vox_range=plot_range, 
             xkcd=plot_xkcd, 
