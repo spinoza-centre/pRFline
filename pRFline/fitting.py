@@ -463,7 +463,7 @@ class pRFResults():
                 if save_dir == None:
                     save_dir = os.path.dirname(self.prf_params)
                 
-                fname = opj(save_dir, f"plot_vox-{vox_id}.{ext}")
+                fname = opj(save_dir, f"plot_model-{self.model}_vox-{vox_id}.{ext}")
             else:
                 fname = None
 
@@ -488,11 +488,11 @@ class pRFResults():
             if save_dir == None:
                 save_dir = os.path.dirname(self.prf_params)
 
-            fname = opj(save_dir, f"plot_vox-target.{ext}")
+            fname = opj(save_dir, f"plot_model-{self.model}_vox-target.{ext}")
         else:
             fname = None
 
-        self.target_obj.target_prediction_prf(save_as=fname, **kwargs)
+        self.target = self.target_obj.target_prediction_prf(save_as=fname, resize_pix=270, **kwargs)
 
         # plot overlap with target vertex
         if overlap:
@@ -505,7 +505,7 @@ class pRFResults():
                 prf_line = self.voxel_data[vox][1]
 
                 # get target pRF from ses-1
-                prf_target = self.target_obj.targ_prf.copy()
+                prf_target = self.target['prf'].copy()
 
                 # create different colormaps
                 colors = ["#DE3163", "#6495ED"]
@@ -514,7 +514,7 @@ class pRFResults():
                 cmaps = [cmap1, cmap2]
                 
                 # get distance of pRF-centers
-                dist = prf.distance_centers(self.target_obj.targ_pars, pars)
+                dist = prf.distance_centers(self.target['pars'], pars)
 
                 # initiate and plot figure
                 axs = fig.add_subplot(gs[ix])
@@ -545,11 +545,16 @@ class pRFResults():
                 if save_dir == None:
                     save_dir = os.path.dirname(self.prf_params)
                 
-                img = opj(save_dir, f'prf_overlap.{ext}')
+                img = opj(save_dir, f'plot_model-{self.model}_desc-overlap.{ext}')
                 print(f"Writing {img}")
                 fig.savefig(img, bbox_inches='tight')
             else:
                 plt.show()
+                return self.voxel_data
+
+        else:
+            if not save:
+                return self.voxel_data
 
     def plot_depth(
         self, 
@@ -562,7 +567,7 @@ class pRFResults():
         ext="png", 
         **kwargs):
         
-        pars = prf.SizeResponse.parse_normalization_parameters(prf.read_par_file(self.prf_params))
+        pars = prf.SizeResponse.parameters_to_df(prf.read_par_file(self.prf_params), model=self.model)
         if isinstance(measures, str):
             if measures == "all":
                 measures = list(pars.columns)
@@ -620,7 +625,7 @@ class pRFResults():
             if save_dir == None:
                 save_dir = os.path.dirname(self.prf_params)
             
-            img = opj(save_dir, f'prf_depth.{ext}')
+            img = opj(save_dir, f'plot_model-{self.model}_desc-depth.{ext}')
             print(f"Writing {img}")
             fig.savefig(img, bbox_inches='tight')
         else:
