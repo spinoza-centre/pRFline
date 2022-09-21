@@ -46,8 +46,14 @@ ses_trafo=${DIR_DATA_DERIV}/pycortex/sub-${subID}/transforms/sub-${subID}_from-s
 # job="python"
 job="qsub -N line_${subID} -pe smp 5 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs"
 
-# actual call (make sure correct environment is loaded!)
-${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} -v
+# please run with --qa first to potentially exclude runs based on the heuristics in the report
+${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --qa
+
+# then, check the subject's html-file to check for heavy motion (e.g., coughing). Exclude those runs using:
+${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --exclude 4 # excludes run-4
+
+# or
+${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --exclude 2,3 # excludes run-2/3
 ```
 
 We can also add the `--hrf` flag to fit the HRF during pRF-fitting. If you've ran standard fit already, you can run the same command with the `--hrf` flag, and the old parameters will be used as starting point. So it doesn't start fitting from scratch with _more_ parameters.
