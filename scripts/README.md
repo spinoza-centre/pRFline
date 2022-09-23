@@ -48,14 +48,32 @@ job="qsub -N line_${subID} -pe smp 5 -wd /data1/projects/MicroFunc/Jurjen/progra
 
 # please run with --qa first to potentially exclude runs based on the heuristics in the report
 python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --qa
+```
+Then, check the subject's html-file to check for heavy motion (e.g., coughing). Exclude those runs using:
 
-# then, check the subject's html-file to check for heavy motion (e.g., coughing). Exclude those runs using:
+### Whole-line pRF-fitting
+The most vanilla version of pRF-fitting is simply fitting across the entire line. That is done as follows:
+```bash
 ${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --exclude 4 # excludes run-4
 
 # or
 ${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --exclude 2,3 # excludes run-2/3
 ```
 
+### pRF-fitting on ribbon (GM-voxels around target vertex)
+We can also fit only on the ribbon voxels. In that case, we need to go to FSLeyes/ITK-Snap and open our CRUISE-segmentation image and the 'beam' image. This way, we can verify which voxels belong to the ribbon of interest. Here's where stuff gets more exotic. We can first estimate the pRFs over the average across the ribbon (which would imitate whole-brain fitting). We can then fix the x/y parameters, and estimate the parameters across the command. We can do that with the command:
+
+```bash
+line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --exclude 1 --ribbon 356,363 --fix 0,1 --feed_avg --no_grid
+
+# --exclude 1       = exclude run-1 > check the report html that was created earlier
+# --ribbon 356,363  = range of ribbon voxels
+# --feed_avg        = first fit on the average across ribbon, then feed those parameters into individual fit
+# --fix 0,1         = fix X/Y parameters from average fit
+# --no_grid         = don't save grid-parameters (save clogging up directory)
+```
+
+### HRF fitting
 We can also add the `--hrf` flag to fit the HRF during pRF-fitting. If you've ran standard fit already, you can run the same command with the `--hrf` flag, and the old parameters will be used as starting point. So it doesn't start fitting from scratch with _more_ parameters.
 ```bash
 ${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --hrf
