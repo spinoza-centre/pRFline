@@ -64,7 +64,7 @@ ${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_
 We can also fit only on the ribbon voxels. In that case, we need to go to FSLeyes/ITK-Snap and open our CRUISE-segmentation image and the 'beam' image. This way, we can verify which voxels belong to the ribbon of interest. Here's where stuff gets more exotic. We can first estimate the pRFs over the average across the ribbon (which would imitate whole-brain fitting). We can then fix the x/y parameters, and estimate the parameters across the command. We can do that with the command:
 
 ```bash
-${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --exclude 1 --ribbon 356,363 --fix 0,1 --feed_avg --no_grid
+${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --ribbon 356,363 --fix 0,1 --feed_avg --no_grid --exclude 1
 
 # --exclude 1       = exclude run-1 > check the report html that was created earlier
 # --ribbon 356,363  = range of ribbon voxels
