@@ -9,14 +9,14 @@ master -m 02 -s ${subID} -n ${sesID}
 
 This will produce a `func`-folder in `$DIR_DATA_SOURCE/sub-${subID}/ses-${sesID}/func`:
 ```bash
-func/
+${DIR_DATA_SOURCE}/sub-${subID}/ses-${ses_ID}/func
 ├── nordic.m # will be created
-├── sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_bold.json
-├── sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_bold.nii.gz
-├── sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_bold_ph.json
-├── sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_bold_ph.nii.gz
-├── sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_epi.json
-└── sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_epi.nii.gz
+├── sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.json
+├── sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.nii.gz
+├── sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold_ph.json
+├── sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold_ph.nii.gz
+├── sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_epi.json
+└── sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_epi.nii.gz
 ```
 
 These files we can use to perform `NORDIC`-denoising. The [call_nordic](https://github.com/gjheij/linescanning/blob/main/bin/call_nordic) command is pretty simple:
@@ -42,11 +42,11 @@ Example:
 So, we'll just run:
 ```bash
 # in the 'func' of sourcedata
-mag="sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_bold.nii.gz"
-phase="sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_bold.nii.gz"
+mag="${DIR_DATA_SOURCE}/sub-${subID}/ses-${ses_ID}/func/sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.nii.gz"
+phase="${DIR_DATA_SOURCE}/sub-${subID}/ses-${ses_ID}/func/sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.nii.gz"
 
 # in project root folder
-out="${DIR_DATA_HOME}/sub-${subID}/ses-${sesID}/sub-${subID}_ses-${ses_ID}_task-pRF_run-1_acq-3DEPI_bold.nii.gz"
+out="${DIR_DATA_HOME}/sub-${subID}/ses-${sesID}/sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.nii.gz"
 
 # cmd
 call_nordic ${mag} ${phase} ${out}
