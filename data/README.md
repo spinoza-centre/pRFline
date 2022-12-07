@@ -46,7 +46,7 @@ mag="${DIR_DATA_SOURCE}/sub-${subID}/ses-${ses_ID}/func/sub-${subID}_ses-${ses_I
 phase="${DIR_DATA_SOURCE}/sub-${subID}/ses-${ses_ID}/func/sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.nii.gz"
 
 # in project root folder
-out="${DIR_DATA_HOME}/sub-${subID}/ses-${sesID}/sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.nii.gz"
+out="${DIR_DATA_HOME}/sub-${subID}/ses-${sesID}/func/sub-${subID}_ses-${ses_ID}_task-pRF_run-0_acq-3DEPI_bold.nii.gz"
 
 # cmd
 call_nordic ${mag} ${phase} ${out}
