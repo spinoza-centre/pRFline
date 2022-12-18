@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D         
 import numpy as np
 import os
-from pRFline.utils import split_params_file
 from scipy import io
 import seaborn as sns
 
@@ -35,8 +34,10 @@ class FitpRFs(dataset.Dataset):
         Turn on messages, by default False
     strip_baseline: bool, optional
         Strip the design matrix from its baseline, default=True
-    ribbon: list, optional
-        If a list of voxels representing the gray-matter ribbon is specified, we'll perform the pRF-fit only on these voxels. This is generally favourable, but because the ribbon differs across subjects the default is None.
+    ribbon: tuple, list, optional
+        If a list or tuple of voxels representing the gray-matter ribbon is specified, we'll perform the pRF-fit only on these voxels. This is generally favourable, but because the ribbon differs across subjects the default is None.
+    gm_only: bool, optional
+        Fit on all gray matter voxels; mutually exclusive wih `ribbon`-argument
     average: bool, optional
         Average across runs before throwing data into the fitter. Default = True. Allows you to fit data on separate runs as well
     rsq_threshold: float, optional
@@ -45,6 +46,8 @@ class FitpRFs(dataset.Dataset):
         Fit the HRF during pRF-fitting. If `True`, the fitting will consist of two stages: first, a regular fitting without HRF estimatiobn. Then, the fitting object of that fit is inserted as `previous_gaussian_fitter` into a new fitter object with HRF estimation turned on. Default = False.
     is_lines: bool, optional
         There's a slightly different procedure for line-scanning compared to whole-brain or 3D-EPI: for the line-scanning, we have two iterations per run. So we need to average those in order to get a single iteration. By default True
+    no_grid: bool, optional
+        Don't save grid-parameters; can save clogging up of directories. Default = False
 
     Raises
     ----------
@@ -83,12 +86,18 @@ class FitpRFs(dataset.Dataset):
         n_iterations=3,
         strip_baseline=True, 
         ribbon=None,
+        gm_only=False,
         average=True,
         rsq_threshold=None,
         fit_hrf=False,
+        fix_parameters=None,
         n_pix=100,
         design_only=False,
         is_lines=True,
+        start_avg=False,
+        save_grid=True,
+        overwrite=False,
+        full_design=False,
         **kwargs):
 
         self.func_files         = func_files
@@ -111,6 +120,12 @@ class FitpRFs(dataset.Dataset):
         self.n_pix              = n_pix
         self.design_only        = design_only
         self.is_lines           = is_lines
+        self.gm_only            = gm_only
+        self.fix_parameters     = fix_parameters
+        self.start_avg          = start_avg
+        self.save_grid          = save_grid
+        self.overwrite          = overwrite
+        self.full_design        = full_design
 
         # try to derive output name from BIDS-components in input file
         if output_base == None:
@@ -161,9 +176,15 @@ class FitpRFs(dataset.Dataset):
 
     def fit(self, **kwargs):
 
+        counter = 1
         if self.verbose:
+            if self.start_avg:
+                txt = "average across GM"
+            else:
+                txt = "no HRF"
+
             print("\n---------------------------------------------------------------------------------------------------")
-            print(f"STAGE 1 [no HRF]")
+            print(f"STAGE {counter} [{txt}]")
 
         # use data with/without baseline
         if self.strip_baseline:
@@ -175,75 +196,160 @@ class FitpRFs(dataset.Dataset):
                 print("Using data WITH baseline for fitting")
             self.data_for_fitter = self.avg_iters_baseline.copy()
 
-        data_fname = opj(self.output_dir, self.output_base+'_desc-data.npy')
-        if self.verbose:
-            print(f"Saving data as {data_fname}")
-        np.save(data_fname, self.data_for_fitter)
+        # this option tells the fitter to fit on the average across depth
+        fix_pars = None
+        if self.start_avg:
+            self.stage1_data = self.data_for_fitter.mean(axis=-1)
+            append_txt = "_vox-avg"
+        else:
+            self.stage1_data = self.data_for_fitter.copy()
+            append_txt = ""
+            
+            if isinstance(self.fix_parameters, list):
+                fix_pars = self.fix_parameters.copy()
         
         if not hasattr(self, "design"):
             self.prepare_design(**kwargs)
         
         # stage 1 - no HRF
         self.stage1 = prf.pRFmodelFitting(
-            self.data_for_fitter.T,
+            self.stage1_data.T,
             design_matrix=self.design, 
             TR=self.TR, 
             model=self.model, 
             stage=self.stage, 
             verbose=self.verbose,
             output_dir=self.output_dir,
-            output_base=self.output_base,
+            output_base=self.output_base+append_txt,
             write_files=True,
             rsq_threshold=self.rsq_threshold,
             fix_bold_baseline=True,
+            fix_parameters=fix_pars,
+            save_grid=self.save_grid,
+            screen_distance_cm=196,
+            grid_nr=40,
             **kwargs)
 
+        # save data
+        data_fname = opj(self.output_dir, self.stage1.output_base+f'_desc-data.npy')
+        if self.verbose:
+            print(f"Saving data as {data_fname}")
+        np.save(data_fname, self.stage1_data)
+
         # check if params-file already exists
-        self.pars_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
+        self.pars_file = opj(self.output_dir, self.stage1.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
+
         # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
-        if not os.path.exists(self.pars_file):
+        if not os.path.exists(self.pars_file) or self.overwrite:
             if self.verbose:
-                print(f"Running fit with {self.model}-model (HRF=False)")
+                print(f"Running fit with {self.model}-model ({txt})")
+
+            # inject existing gaussian pars
+            self.gauss_file = opj(self.output_dir, self.stage1.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
+            if os.path.exists(self.gauss_file):
+                self.stage1.old_params = self.gauss_file
 
             # fit
             self.stage1.fit()
         else:
+            # load Gauss parameters
+            self.pars_file = opj(self.output_dir, self.stage1.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
+            
             if self.verbose:
                 print(f"Parameter file '{self.pars_file}'")
-            
-            # load
-            self.stage1.load_params(self.pars_file, model=self.model, stage=self.stage)
 
-        # stage2 - fit HRF after initial iterative fit
+            self.stage1.load_params(
+                self.pars_file, 
+                model=self.model, 
+                stage=self.stage)
+
+        # if start_avg, feed average fits as starting point for ribbon
+        if self.start_avg:
+            counter += 1
+            print("\n---------------------------------------------------------------------------------------------------")
+            print(f"STAGE {counter} [ribbon]")
+
+            # base ribbon fit on average fit
+            insert_params = getattr(self.stage1, f"{self.model}_iter")
+
+            # Gauss iterfit with pRF-estimates from average ribbon as starting point
+            self.stage2_data = self.data_for_fitter.copy()
+            self.stage2 = prf.pRFmodelFitting(
+                self.stage2_data.T,
+                design_matrix=self.design, 
+                TR=self.TR, 
+                model=self.model, 
+                stage=self.stage, 
+                verbose=self.verbose,
+                output_dir=self.output_dir,
+                output_base=self.output_base+"_vox-ribbon",
+                write_files=True,
+                rsq_threshold=self.rsq_threshold,
+                fix_bold_baseline=True,
+                fix_parameters=self.fix_parameters,
+                old_params=insert_params,
+                save_grid=self.save_grid,
+                skip_grid=True,
+                **kwargs)
+
+            # save data
+            data_fname = opj(self.output_dir, self.stage2.output_base+f'_desc-data.npy')
+            if self.verbose:
+                print(f"Saving data as {data_fname}")
+            np.save(data_fname, self.stage2_data)
+
+            # check if params-file already exists
+            self.pars_file2 = opj(self.output_dir, self.stage2.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
+            # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
+            if not os.path.exists(self.pars_file2):
+                if self.verbose:
+                    print(f"Running fit with {self.model}-model (ribbon)")
+
+                # fit
+                self.stage2.fit()
+            else:
+                if self.verbose:
+                    print(f"Parameter file '{self.pars_file2}'")
+                
+                # load
+                self.stage2.load_params(
+                    self.pars_file2, 
+                    model=self.model, 
+                    stage=self.stage)
+
+            self.hrf_input = self.stage2
+
+        else:
+            # set stage 1 as stage 2 if start_avg=False
+            self.hrf_input = self.stage1
+
+        # stage3 - fit HRF after initial iterative fit
         if self.fit_hrf:
-
+            counter += 1
             if self.verbose:
                 print("\n---------------------------------------------------------------------------------------------------")
-                print(f"STAGE 2 [HRF]- Running fit with {self.model}-model")
+                print(f"STAGE {counter} [HRF]- Running fit with {self.model}-model")
 
             # check first if we can insert the entire fitter (in case of fitting HRF directly after the other)
             # then check if we have old parameters when running stage1 and stage2 separately
-            if hasattr(self.stage1, f"{self.model}_fitter"):
+            if hasattr(self.hrf_input, f"{self.model}_fitter"):
                 if self.verbose:
-                    print(f"Use '{self.model}_fitter' from {self.stage1} [fitter]")
+                    print(f"Use '{self.model}_fitter' from {self.hrf_input} [fitter]")
 
-                prev_fitter = getattr(self.stage1, f"{self.model}_fitter")
+                prev_fitter = getattr(self.hrf_input, f"{self.model}_fitter")
                 old_pars = None
-            elif hasattr(self.stage1, f"{self.model}_{self.stage}"):
+            elif hasattr(self.hrf_input, f"{self.model}_{self.stage}"):
                 if self.verbose:
-                    print(f"Use '{self.model}_{self.stage}' from {self.stage1} [parameters]")
+                    print(f"Use '{self.model}_{self.stage}' from {self.hrf_input} [parameters]")
 
-                old_pars = getattr(self.stage1, f"{self.model}_{self.stage}")
+                old_pars = getattr(self.hrf_input, f"{self.model}_{self.stage}")
                 prev_fitter = None
             else:
-                raise ValueError(f"Could not derive '{self.model}_fitter' or '{self.model}_{self.stage}' from {self.stage1}")
-
-            # add tag to output to differentiate between HRF=false and HRF=true
-            self.output_base += "_hrf-true"
+                raise ValueError(f"Could not derive '{self.model}_fitter' or '{self.model}_{self.stage}' from {self.hrf_input}")
 
             # initiate fitter object with previous fitter
-            self.stage2 = prf.pRFmodelFitting(
-                self.data_for_fitter.T, 
+            self.stageHRF = prf.pRFmodelFitting(
+                self.hrf_input.data, 
                 design_matrix=self.design, 
                 TR=self.stage1.TR, 
                 model=self.model, 
@@ -251,29 +357,34 @@ class FitpRFs(dataset.Dataset):
                 verbose=self.verbose,
                 fit_hrf=True,
                 output_dir=self.output_dir,
-                output_base=self.output_base,
+                output_base=self.hrf_input.output_base+"_hrf-true",
                 write_files=True,                                
                 previous_gaussian_fitter=prev_fitter,
                 fix_bold_baseline=True,
                 rsq_threshold=self.rsq_threshold,
+                fix_parameters=self.fix_parameters,
+                save_grid=self.save_grid,
                 old_params=old_pars)
 
-        # check if params-file already exists
-        
-        self.hrf_file = opj(self.output_dir, self.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
-        # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
-        if not os.path.exists(self.hrf_file):
-            if self.verbose:
-                print(f"Running fit with {self.model}-model (HRF=True)")
-
-            # fit
-            self.stage2.fit()
-        else:
-            if self.verbose:
-                print(f"Parameter file '{self.hrf_file}'")
+            # check if params-file already exists
             
-            # load
-            self.stage2.load_params(self.hrf_file, model=self.model, stage=self.stage)
+            self.hrf_file = opj(self.output_dir, self.stageHRF.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
+            # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
+            if not os.path.exists(self.hrf_file) or self.overwrite:
+                if self.verbose:
+                    print(f"Running fit with {self.model}-model (HRF=True)")
+
+                # fit
+                self.stageHRF.fit()
+            else:
+                if self.verbose:
+                    print(f"Parameter file '{self.hrf_file}'")
+                
+                # load
+                self.stageHRF.load_params(
+                    self.hrf_file, 
+                    model=self.model, 
+                    stage=self.stage)
 
     def prepare_design(self, **kwargs):
         
@@ -290,6 +401,7 @@ class FitpRFs(dataset.Dataset):
             self.design = prf.create_line_prf_matrix(
                 self.log_dir, 
                 stim_duration=0.25,
+                stim_at_half_TR=True,
                 nr_trs=self.avg_iters_baseline.shape[0],
                 TR=0.105,
                 verbose=self.verbose,
@@ -327,12 +439,22 @@ class FitpRFs(dataset.Dataset):
         # fetch data and filter out NaNs
         self.data = self.fetch_fmri()
 
-        if self.ribbon:
+        if isinstance(self.ribbon, tuple):
+            self.ribbon = list(np.arange(*list(self.ribbon)))
+    
+        if isinstance(self.ribbon, list) and not self.gm_only:
             if self.verbose:
-                print(" Including GM-voxels only (saves times)")
+                print(f" Including voxels: {self.ribbon}")
 
-            self.data = self.gm_df.copy()
+            self.data = utils.select_from_df(
+                self.data,
+                expression="ribbon",
+                indices=self.ribbon
+            )
         
+        if self.gm_only:
+            self.data = self.gm_df.copy()
+
         # average
         self.avg = self.data.groupby(['subject', 't']).mean()
 
@@ -364,23 +486,27 @@ class FitpRFs(dataset.Dataset):
             else:
                 raise ValueError(f"Unknown recognized number of iterations: '{self.n_iterations}'")
 
-        self.iter_chunks = []
-        for ii in range(self.n_iterations):
+        if not self.full_design:
+            self.iter_chunks = []
+            for ii in range(self.n_iterations):
 
-            # try to fetch values, if steps are out of bounds, zero-pad the timecourse
-            if start+iter_size < self.avg.shape[0]:
-                chunk = self.avg.values[start:start+iter_size]
-            else:
-                chunk = self.avg.values[start+iter_size:]
-                padded_array = np.zeros((iter_size, self.avg.shape[-1]))
-                padded_array[:chunk.shape[0]] = chunk
-                chunk = padded_array.copy()
+                # try to fetch values, if steps are out of bounds, zero-pad the timecourse
+                if start+iter_size < self.avg.shape[0]:
+                    chunk = self.avg.values[start:start+iter_size]
+                else:
+                    chunk = self.avg.values[start+iter_size:]
+                    padded_array = np.zeros((iter_size, self.avg.shape[-1]))
+                    padded_array[:chunk.shape[0]] = chunk
+                    chunk = padded_array.copy()
 
-            self.iter_chunks.append(chunk[...,np.newaxis])
-            start += iter_size
+                self.iter_chunks.append(chunk[...,np.newaxis])
+                start += iter_size
 
-        self.avg_iters_baseline     = np.concatenate((self.baseline, np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)))
-        self.avg_iters_no_baseline  = np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)
+            self.avg_iters_baseline = np.concatenate((self.baseline, np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)))
+            self.avg_iters_no_baseline = np.concatenate(self.iter_chunks, axis=-1).mean(axis=-1)
+        else:
+            self.avg_iters_baseline = self.avg.values
+            self.avg_iters_no_baseline = self.avg_iters_baseline[...,self.baseline.shape[0]:]
 
         if self.verbose:
             print(f" With baseline: {self.avg_iters_baseline.shape} | No baseline: {self.avg_iters_no_baseline.shape}")
@@ -388,11 +514,18 @@ class FitpRFs(dataset.Dataset):
 
 class pRFResults():
 
-    def __init__(self, prf_params, verbose=False, TR=0.105, **kwargs):
+    def __init__(
+        self, 
+        prf_params, 
+        verbose=False, 
+        TR=0.105, 
+        targ2line=False,
+        **kwargs):
 
         self.prf_params     = prf_params
         self.verbose        = verbose
         self.TR             = TR
+        self.targ2line      = targ2line
         self.__dict__.update(kwargs)
 
         if self.verbose:
@@ -400,7 +533,7 @@ class pRFResults():
             print(f" pRF params:    {self.prf_params}")
 
         # the params file should have a particular naming that allows us to read specs:
-        self.file_components = split_params_file(self.prf_params)
+        self.file_components = utils.split_bids_components(self.prf_params)
         self.model = self.file_components['model']
         self.stage = self.file_components['stage']
 
@@ -410,6 +543,19 @@ class pRFResults():
         search_design = ['desc-design_matrix']
         search_data = ['desc-data']
 
+        # check if we can derive average/ribbon fit
+        try:
+            self.data_type = self.file_components['vox']
+            exclude_vox = None
+            self.desc = f"_vox-{self.data_type}"
+        except:
+            self.data_type = None
+            exclude_vox = "vox-"
+            self.desc = ""
+
+        if isinstance(self.data_type, str):
+            search_data += [f"vox-{self.data_type}"]
+
         # update by checking file components
         for el in ['run', 'acq']:
             try:
@@ -418,10 +564,20 @@ class pRFResults():
                 search_data = search_data + [f"{el}-{self.file_components[el]}"]
             except:
                 pass 
-
+            
         # get design matrix  data
         self.fn_design = utils.get_file_from_substring(search_design, os.path.dirname(self.prf_params))
-        self.fn_data = utils.get_file_from_substring(search_data, os.path.dirname(self.prf_params))
+        self.fn_data = utils.get_file_from_substring(search_data, os.path.dirname(self.prf_params), exclude=exclude_vox)
+
+        for desc, obj, crit in zip(
+            ['designs', 'funcs'],
+            [self.fn_design, self.fn_data], 
+            [search_design, search_data]):
+            if isinstance(obj, list):
+                if len(obj) == 0:
+                    raise ValueError(f"Found 0 instances with {crit} in {os.path.dirname(self.prf_params)}")
+                elif len(obj) > 1:
+                    raise ValueError(f"Found multiple instances of {desc}: {obj}")
 
         if self.verbose:
             print(f" Design matrix: {self.fn_design}")
@@ -441,7 +597,10 @@ class pRFResults():
             TR=self.TR)
 
         # load the parameters
-        self.model_fit.load_params(self.prf_params, model=self.model, stage=self.stage)
+        self.model_fit.load_params(
+            self.prf_params, 
+            model=self.model, 
+            stage=self.stage)
 
     def plot_prf_timecourse(
         self, 
@@ -452,30 +611,6 @@ class pRFResults():
         ext="png", 
         overlap=True, 
         **kwargs):
-
-        if vox_range == None:
-            vox_range = [vox_nr,vox_nr+1]
-
-        self.voxel_data = {}
-        for vox_id in range(*vox_range):
-
-            if save:
-                if save_dir == None:
-                    save_dir = os.path.dirname(self.prf_params)
-                
-                fname = opj(save_dir, f"plot_model-{self.model}_vox-{vox_id}.{ext}")
-            else:
-                fname = None
-
-            self.voxel_data[vox_id] = self.model_fit.plot_vox(
-                vox_nr=vox_id, 
-                model=self.model,
-                transpose=False, 
-                axis_type="time",
-                save_as=fname,
-                resize_pix=270,
-                title='pars',
-                **kwargs)
 
         # target pRF
         self.target_obj = prf.CollectSubject(
@@ -488,11 +623,78 @@ class pRFResults():
             if save_dir == None:
                 save_dir = os.path.dirname(self.prf_params)
 
-            fname = opj(save_dir, f"plot_model-{self.model}_vox-target.{ext}")
+            fname = opj(save_dir, f"plot_model-{self.model}_vox-target_desc-timecourse.{ext}")
         else:
             fname = None
 
-        self.target = self.target_obj.target_prediction_prf(save_as=fname, resize_pix=270, **kwargs)
+        self.target = self.target_obj.target_prediction_prf(
+            save_as=fname, 
+            resize_pix=270, 
+            axis_type="time",
+            **kwargs)
+
+        # insert target pRF in line-scanning session
+        if self.targ2line:
+
+            # initiate model with line-scanning design
+            self.target_in_ses2 = prf.pRFmodelFitting(
+                self.target['tc'],
+                design_matrix=self.design,
+                TR=self.TR
+            )
+
+            # load ses-1 parameters
+            self.target_in_ses2.load_params(
+                self.target['pars'],
+                model=self.model,
+                stage=self.stage
+            )
+
+            # get the target pRFs prediction to line-scanning design
+            _,_,_,targ_in_line_tc = self.target_in_ses2.plot_vox(
+                model=self.model, 
+                stage=self.stage, 
+                make_figure=False,
+                axis_type="time")
+
+            print(type(targ_in_line_tc))
+            # create add_tc dictionary for plot_vox
+            add_tc = {
+                "tc": targ_in_line_tc,
+                "label": "target"}
+        else:
+            add_tc = None
+
+        if vox_range == None:
+            vox_range = [vox_nr,vox_nr+1]
+
+        self.voxel_data = {}
+        for vox_id in range(*vox_range):
+
+            if "avg" not in self.desc:
+                desc = f"_vox-{vox_id}"
+                add_tc = None
+            else:
+                desc = self.desc
+                
+            if save:
+                if save_dir == None:
+                    save_dir = os.path.dirname(self.prf_params)
+                
+                fname = opj(save_dir, f"plot_model-{self.model}{desc}_desc-timecourse.{ext}")
+            else:
+                fname = None
+
+            self.voxel_data[vox_id] = self.model_fit.plot_vox(
+                vox_nr=vox_id, 
+                model=self.model,
+                transpose=False, 
+                axis_type="time",
+                save_as=fname,
+                resize_pix=270,
+                title='pars',
+                add_tc=add_tc,
+                **kwargs)
 
         # plot overlap with target vertex
         if overlap:
@@ -545,7 +747,7 @@ class pRFResults():
                 if save_dir == None:
                     save_dir = os.path.dirname(self.prf_params)
                 
-                img = opj(save_dir, f'plot_model-{self.model}_desc-overlap.{ext}')
+                img = opj(save_dir, f'plot_model-{self.model}{self.desc}_desc-overlap.{ext}')
                 print(f"Writing {img}")
                 fig.savefig(img, bbox_inches='tight')
             else:

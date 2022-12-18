@@ -1,28 +1,66 @@
-from linescanning import utils, prf
+from linescanning import utils
+from linescanning.optimal import Neighbours
 import os
 from nipype.interfaces import fsl, ants, freesurfer
 opj = os.path.join
 
-def split_params_file(fname):
+class SubjectsDict(Neighbours):
 
-    comp_list = fname.split('_')
-    comps = {}
+    def __init__(self):
+
+        # set ribbon voxels for each subject
+        self.dict_data = {
+            "sub-001": {
+                "ribbon": (356,364),
+                # "ribbon": (359,367),
+                "exclude": "run-1",
+                "target": 1053,
+                "screen_size": 70
+            },
+            "sub-002": {
+                "ribbon": (355,363),
+                "exclude": None,
+                "target": 2249,
+                "screen_size": 39.3
+            },
+            "sub-003": {
+                "ribbon": (356,365),
+                "exclude": "run-4",
+                "target": 646,
+                "screen_size": 70
+            },
+            "sub-005": {
+                "ribbon": (360,367),
+                "exclude": None,
+                "target": 6055,
+                "screen_size": 39.3
+            },
+            "sub-007": {
+                "ribbon": (361,367),
+                "exclude": "run-1",
+                "target": 4578,
+                "screen_size": 39.3
+            },
+            "sub-008": {
+                "ribbon": (358,364),
+                "exclude": "run-2",
+                "target": 10009,
+                "screen_size": 39.3
+            }
+        }
+
+    def get_target(self, subject):
+        return self.dict_data[subject]["target"]
     
-    ids = ['sub', 'ses', 'run', 'model', 'stage', 'acq', 'hrf']
-    for el in comp_list:
-        for i in ids:
-            if i in el:
-                comp = el.split('-')[-1]
-                if i == "run":
-                    comp = comp
+    def get_ribbon(self, subject):
+        return self.dict_data[subject]["ribbon"]
 
-                comps[i] = comp
+    def get_exclude(self, subject):
+        return self.dict_data[subject]["exclude"]
 
-    if len(comps) != 0:
-        return comps
-    else:
-        print(f"Could not find any element of {ids} in {fname}")
-    
+    def get_screen_size(self, subject):
+        return self.dict_data[subject]["screen_size"]
+
 def mcflirt(func):
 
     print(f"running mcflirt on {func}")

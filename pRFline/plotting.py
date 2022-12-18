@@ -76,7 +76,7 @@ class pRFSpread():
                 title=lbl,
                 y_lim=self.lim_fits,
                 font_size=self.max_size*0.8,
-                label_size=self.max_size*0.5,
+                label_size=self.max_size*0.7,
                 resize_pix=270,
                 **kwargs
             )
@@ -136,7 +136,7 @@ class pRFSpread():
                         1,
                         fill=False,
                         ec=self.colors[0],
-                        lw=3)
+                        lw=2)
 
                     self.fig_axs[0].set_aspect(1)
                     self.fig_axs[0].add_artist(circ)
@@ -198,6 +198,7 @@ class pRFSpread():
 
                 plotting.LazyPlot(
                     run_1d,
+                    xx=self.fits[ii].prf_stim.x_coordinates[0],
                     axs=self.fig_axs[1],
                     line_width=2,
                     color=self.color_p[ii]
@@ -208,16 +209,16 @@ class pRFSpread():
 
         plotting.LazyPlot(
             avg_1d,
+            xx=self.fits[ii].prf_stim.x_coordinates[0],
             axs=self.fig_axs[1],
             line_width=2,
             color=self.colors[0],
             title="1D pRF location",
             font_size=self.max_size*0.8,
             y_ticks=[0,1],
-            x_label="visual field (px)",
+            x_label="visual field (dva)",
             y_label="response",
-            x_lim=[0,avg_1d.shape[0]],
-            x_ticks=[0,avg_1d.shape[0]//2,avg_1d.shape[0]],
+            x_ticks=[-5,0,5],
             **kwargs
         )
 
