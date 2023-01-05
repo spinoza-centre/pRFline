@@ -28,18 +28,46 @@ ${job} partial_fit.py -s ${subID} -n ${sesID} -b ${bids_dir} -l ${log_dir} -v --
 
 ## Line
 
-For the line-experiments, we can run `line_fit.py`, which internally preprocessed the functional runs (high/low-pass filtering), and averages over runs and design iterations (2x runs and 3x iterations per run). It also strips the run from it's baseline, because of wonky averaging and selects the ribbon-voxels from the dataframe to limit the demand on resources. We create a separate design matrix from the same screenshots because of different repetition times (`1.111s` vs `0.105`s). The call is as follows:
+For the line-experiments, we can run `line_fit.py`, which internally preprocessed the functional runs (high/low-pass filtering), and averages over runs and design iterations (2x runs and 3x iterations per run). It also strips the run from it's baseline, because of wonky averaging and selects the ribbon-voxels from the dataframe to limit the demand on resources. We create a separate design matrix from the same screenshots because of different repetition times (`1.111s` vs `0.105`s). First, we need some registration matrices for:
+
+- Mapping `ses-1` to the image closest to the line-scanning acquisition (generally, this will be the `rec-motion1` image). Based on the subject & session IDs, it selects `ses-1` data from `DIR_DATA_DERIV/pymp2rage` and the `ses-${sesID}` data (low-res anatomical image) from `$DIR_DATA_HOME`.
+
+  ```bash
+  # subject/session information
+  subID=009
+  sesID=2
+
+  # shortcuts
+  base_path=sub-${subID}/ses-${sesID}
+  base=sub-${subID}_ses-${sesID}
+
+  # cmd
+  call_ses1_to_motion1 sub-${subID} ${sesID}
+  ```
+
+- Registrations mapping each indivual anatomical slice to the slice closest to the partial FOV anatomical data (again, usually this is the `rec-motion1` image), so we can project all the segmentations to each run as accurately as possible. For this, we need to run ITK-Snap a bunch of times and save the files as `from-run1_to-runX.txt`, in `$DIR_DATA_HOME/sub-${subID}/ses-${sesID}/anat`:
+
+  ```bash
+  n_runs=3
+  subj_dir=$DIR_DATA_HOME/${base_path}/anat
+  mov=${subj_dir}/${base}_acq-1slice_run-1_T1w.nii.gz
+  for run in `seq 1 ${n_runs}`; do
+    ref=${subj_dir}/${base}_acq-1slice_run-${run}_T1w.nii.gz
+
+    # open ITK-Snap > ctrl+R  (or 'cmd+R' on mac) > 'manual' > align
+    # press the floppy button on the bottom right, save as:
+    echo "save image as ${subj_dir}/from-run1_to-run${run}.txt"
+    itksnap -g ${ref} -o ${mov}
+  done
+  ```
+ The call is as follows:
 
 ```bash
-# subject/session information
-subID="007"
-sesID=2
-iters=2
 
 # directories
-bids_dir=${DIR_DATA_HOME}/sub-${subID}/ses-${sesID}
-out_dir=${DIR_DATA_DERIV}/prf/sub-${subID}/ses-${sesID}/sub-${subID}_ses-${sesID}_task-pRF
-log_dir=${DIR_DATA_SOURCE}/sub-${subID}/ses-${sesID}/sub-${subID}_ses-${sesID}_task-pRF_run-imgs
+bids_dir=${DIR_DATA_HOME}/${base_path}
+out_dir=${DIR_DATA_DERIV}/prf/${base_path}/${base}_task-pRF
+log_dir=${DIR_DATA_SOURCE}/${base_path}/${base}_task-pRF_run-imgs
 ses_trafo=${DIR_DATA_DERIV}/pycortex/sub-${subID}/transforms/sub-${subID}_from-ses1_to-ses${sesID}_rec-motion1_desc-genaff.mat
 
 # submit to cluster or run locally with python
