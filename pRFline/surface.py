@@ -2,6 +2,7 @@ from .utils import SubjectsDict
 from linescanning import (
     optimal,
     prf,
+    pycortex,
     utils
 )
 import numpy as np
@@ -135,11 +136,11 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
         import cortex
         
         # set defaults
-        for xx,qq in zip(["annotate","annotate_value","vmin","vmax","cmap"], [True,30,0,4,"magma_r"]):
+        for xx,qq in zip(["annotate","annotate_value","vmin","vmax","cmap","one_hemi"], [True,30,0,4,"magma_r",False]):
             if not hasattr(self, xx):
                 setattr(self, xx, qq)
 
-            if xx in ["vmax","vmin","cmap"]:
+            if xx in ["vmax","vmin","cmap","one_hemi"]:
                 if xx in list(kwargs.keys()):
                     utils.verbose(f"Updating '{xx}' from '{getattr(self,xx)}' to '{kwargs[xx]}'", verbose=self.verbose)
                     setattr(self, xx, kwargs[xx])
@@ -155,39 +156,51 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
             self.target_matched = np.full_like(self.use_distance_data, 0)
             self.target_matched[self.closest_to_minimum_distance] = -self.annotate_value
             self.target_matched[self.target_vert] = self.annotate_value
+            
+            alpha_mask = np.full_like(self.use_distance_data, 0)
+            alpha_mask[self.target_matched != 0] = 1
+            self.target_matched_v = pycortex.Vertex2D_fix(
+                self.target_matched,
+                alpha_mask,
+                self.subject,
+                "seismic",
+                vmin=-10,
+                vmax=10,
+                vmin2=0,
+                vmax2=1
+            )
 
-            # make vertex objects
-            self.target_matched_v = cortex.Vertex(
-                self.target_matched, 
-                **dict(
-                    kwargs,
-                    subject=self.subject, 
-                    vmin=-10, 
-                    vmax=10,
-                    cmap="seismic",
-                ))
-
+        alpha_mask = self.whole_roi.copy()
+        if self.one_hemi:
+            if self.hemi == "lh":
+                self.use_distance_data[self.lh_roi_mask.shape[0]:] = np.nan
+            elif self.hemi == "rh":
+                self.use_distance_data[:self.lh_roi_mask.shape[0]] = np.nan
+    
         # make vertex objects
-        self.dist_v = cortex.Vertex(
-            self.use_distance_data, 
-            **dict(
-                kwargs,
-                subject=self.subject, 
-                vmin=self.vmin, 
-                vmax=self.vmax,
-                cmap=self.cmap,
-            ))
+        self.dist_v = pycortex.Vertex2D_fix(
+            self.use_distance_data,
+            alpha_mask,
+            self.subject,
+            self.cmap,
+            vmin=self.vmin,
+            vmax=self.vmax,
+            vmin2=0,
+            vmax2=1
+        )
 
         if self.smooth:
-            self.dist_v_raw = cortex.Vertex(
-                self.dist_array, 
-                **dict(
-                    kwargs,
-                    subject=self.subject, 
-                    vmin=self.vmin, 
-                    vmax=self.vmax,
-                    cmap=self.cmap,
-                ))            
+            # make vertex objects
+            self.dist_v_raw = pycortex.Vertex2D_fix(
+                self.dist_array,
+                alpha_mask,
+                self.subject,
+                self.cmap,
+                vmin=self.vmin,
+                vmax=self.vmax,
+                vmin2=0,
+                vmax2=1
+            )    
 
     def webshow(self, **kwargs):
         import cortex

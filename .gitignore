@@ -159,5 +159,6 @@ cython_debug/
 
 # VSCode editor metadata
 .vscode/
-
 logs/*.o*
+*.mat
+*.pkl

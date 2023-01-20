@@ -97,8 +97,10 @@ BOLD-FILE
 
 Now we're done with the `epi`-files so we can copy them to the corresponding `fmap`-folder:
 ```bash
-mkdir -p ${DIR_DATA_HOME}/${sub_id}/ses-${ses_id}/fmap
-cp *_epi* ${DIR_DATA_HOME}/${sub_id}/ses-${ses_id}/fmap
+bids_dir=${DIR_DATA_HOME}/sub-${subID}/ses-${ses_ID}
+mkdir -p ${bids_dir}/fmap
+cp *_epi* ${bids_dir}/fmap
+cp *_acq-3DEPI_bold.json ${bids_dir}/func
 ```
 
 # Partial preprocessing with fMRIPrep

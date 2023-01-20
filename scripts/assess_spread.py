@@ -4,6 +4,7 @@ import sys
 import getopt
 import pRFline
 from pRFline.plotting import pRFSpread
+from pRFline.utils import SubjectsDict
 from linescanning import (
     utils,
     prf,
@@ -19,22 +20,22 @@ def main(argv):
 
     """assess_spread.py
 
-    Assess the inherent run-to-run spread of pRF parameters in line-scanning & 2D EPI whole brain data. A few settings are hard coded (i.e., gray matter voxels, screen distance, project paths), but which subject is to be processed can be set with the '-s' flag
+Assess the inherent run-to-run spread of pRF parameters in line-scanning & 2D EPI whole brain data. A few settings are hard coded (i.e., gray matter voxels, screen distance, project paths), but which subject is to be processed can be set with the '-s' flag
 
-    Parameters
-    ----------
-    -s <subject ID>     subject ID as used throughout the pipeline (e.g., 'sub-001')
-    --skip_lines        skip the line-scanning fitting; only do 2D-EPI whole brain stuff
-    --skip_epi          do not fit 2D-EPI whole brain data
+Parameters
+----------
+-s <subject ID>     subject ID as used throughout the pipeline (e.g., 'sub-001')
+--skip_lines        skip the line-scanning fitting; only do 2D-EPI whole brain stuff
+--skip_epi          do not fit 2D-EPI whole brain data
 
-    Returns
-    ----------
-    A bunch of figures in the `pRFline`-repository ending with `desc-spread_{lines|2depi}.svg`.
+Returns
+----------
+A bunch of figures in the `pRFline`-repository ending with `desc-spread_{lines|2depi}.svg`.
 
-    Example
-    ----------
-    >>> # fetch results of pRF-estimation with HRF
-    >>> python assess_spread.py -s sub-002
+Example
+----------
+>>> # fetch results of pRF-estimation with HRF
+>>> python assess_spread.py -s sub-002
     """
     
     subject = None
@@ -77,38 +78,7 @@ def main(argv):
     fig_dir.mkdir(parents=True, exist_ok=True)
 
     # set ribbon voxels for each subject
-    dict_data = {
-        "sub-001": {
-            "ribbon": (356,364),
-            "exclude": "run-1",
-            "target": 2265,
-            "screen_size": 70
-        },
-        "sub-002": {
-            "ribbon": (355,363),
-            "exclude": None,
-            "target": 2249,
-            "screen_size": 39.3
-        },
-        "sub-003": {
-            "ribbon": (356,365),
-            "exclude": "run-4",
-            "target": 646,
-            "screen_size": 39.3
-        },
-        "sub-007": {
-            "ribbon": (361,367),
-            "exclude": None,
-            "target": 4578,
-            "screen_size": 39.3
-        },
-        "sub-008": {
-            "ribbon": (358,364),
-            "exclude": "run-2",
-            "target": 10009,
-            "screen_size": 39.3
-        }
-    }
+    dict_data = SubjectsDict()
 
     if lines:
 

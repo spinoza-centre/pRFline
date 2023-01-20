@@ -33,6 +33,9 @@ def main(argv):
     --gauss             use Gaussian parameters
     --dog               use Difference-of-Gaussian parameters
     --css               use CSS parameters
+    --avg               read in the average across GM files; will produce the overlap-with-target figure
+    --ribbon            read in the ribbon files; will produce the depth-figure; will automatically overwrite `plot_range` to whatever format the data is
+    --targ2line         Plot prediction of target pRF in response to line-scanning design. This option is only available with `--avg`.
 
     Returns
     ----------
@@ -58,9 +61,12 @@ def main(argv):
     overlap     = True
     depth       = True
     model       = "norm"
+    exclude     = "vox-"
+    data_type   = None
+    targ2line   = False
 
     try:
-        opts = getopt.getopt(argv,"xhs:n:r:o:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np", "epi", "vox=", "out=", "no_depth", "no_overlap", "norm", "css", "gauss", "dog"])[0]
+        opts = getopt.getopt(argv,"xhs:n:r:o:",["sub=", "ses=", "range=", "pdf", "png", "svg", "hrf", "xkcd", "np", "epi", "vox=", "out=", "no_depth", "no_overlap", "norm", "css", "gauss", "dog", "ribbon", "avg", "targ2line"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -106,7 +112,17 @@ def main(argv):
             model = "css"
         elif opt in ("--dog"):
             model = "dog"
-    
+        elif opt in ("--ribbon"):
+            data_type = "vox-ribbon"
+            exclude = None
+        elif opt in ("--avg"):
+            data_type = "vox-avg"
+            exclude = None
+            plot_vox = 0
+            depth = False
+        elif opt in ("--targ2line"):
+            targ2line = True
+
     if len(argv) == 0:
         print(main.__doc__)
         sys.exit()
@@ -118,12 +134,11 @@ def main(argv):
     prf_new     = opj(deriv_dir, 'prf', subject, f"ses-{session}")
 
     # fetch parameters with/without HRF
-    search_for = [f"model-{model}", "stage-iter", f"params.{look_for}"]
-    if fit_hrf:
-        search_for += ["hrf-true"]
-        exclude = None
-    else:
-        exclude = "hrf-true"
+    search_for = [
+        f"model-{model}", 
+        "stage-iter", 
+        data_type,
+        f"params.{look_for}"]
 
     if isinstance(acq, list):
         search_for += acq
@@ -131,8 +146,20 @@ def main(argv):
     # search for parameters    
     pars = utils.get_file_from_substring(search_for, prf_new, exclude=exclude)
 
+    if isinstance(pars, list):
+        if fit_hrf:
+            pars = utils.get_file_from_substring(['hrf-true'], pars)
+        else:
+            pars = utils.get_file_from_substring(search_for, pars, exclude=['hrf-true'])
+    
+    if isinstance(pars, list):
+        raise ValueError(f"Found multiple files ({len(pars)}: {pars}")
+
     # plop into pRFResults object
-    results = fitting.pRFResults(pars, verbose=True)
+    results = fitting.pRFResults(
+        pars, 
+        verbose=True,
+        targ2line=targ2line)
 
     # save stuff if extension is given
     if ext != None:
@@ -144,10 +171,14 @@ def main(argv):
             # make directory
             output_dir.mkdir(parents=True, exist_ok=True)
 
+    # set range to whatever the data is
+    if "ribbon" in data_type:
+        plot_range = [0,results.data.shape[-1]]
+
     # set range to None if we received single voxel
-    if plot_vox != None:
+    if isinstance(plot_vox, int):
         plot_range = None
-    
+
     if overlap:
         results.plot_prf_timecourse(
             vox_nr=plot_vox,
@@ -158,12 +189,15 @@ def main(argv):
             ext=ext)
 
     if depth:
+        if isinstance(plot_vox, int) or "avg" in data_type:
+            raise ValueError("Cannot use this plotting type with the average timecourse; use --ribbon")
+
         measures = 'all' # x,y,prf_size,prf_ampl,bold_bsl,neur_bsl,surr_ampl,surr_size,surr_bsl,A,B,C,D,ratio (B/D),r2,size ratio,suppression index
 
         if model == "norm":
             measures = ['prf_size', 'r2', 'size ratio', 'suppression index']
         else:
-            measures = ['prf_size', 'r2', 'ecc', 'polar']
+            measures = ['prf_size', 'r2']
             
         results.plot_depth(
             vox_range=plot_range, 
