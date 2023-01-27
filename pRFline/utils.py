@@ -18,7 +18,12 @@ class SubjectsDict():
                 "screen_size": 70,
                 "line_ses": 2,
                 "invert": False,
-                "bounds": True
+                "bounds": True,
+                "views": {
+                    "azimuth": 180,
+                    "altitude": 105,
+                    "radius": 163
+                },
             },
             "sub-002": {
                 "ribbon": (358,366),
@@ -27,7 +32,12 @@ class SubjectsDict():
                 "screen_size": 39.3,
                 "line_ses": 2,
                 "invert": False,
-                "bounds": True
+                "bounds": True,
+                "views": {
+                    "azimuth": 180,
+                    "altitude": 105,
+                    "radius": 163
+                },
             },
             "sub-003": {
                 "ribbon": (358,366),
@@ -36,7 +46,12 @@ class SubjectsDict():
                 "screen_size": 70,
                 "line_ses": 2,
                 "invert": False,
-                "bounds": False
+                "bounds": False,
+                "views": {
+                    "azimuth": 180,
+                    "altitude": 105,
+                    "radius": 163
+                },
             },
             "sub-005": {
                 "ribbon": (360,366),
@@ -45,7 +60,12 @@ class SubjectsDict():
                 "screen_size": 39.3,
                 "line_ses": 3,
                 "invert": False,
-                "bounds": False
+                "bounds": False,
+                "views": {
+                    "azimuth": 180,
+                    "altitude": 105,
+                    "radius": 163
+                },
             },
             "sub-007": {
                 "ribbon": (361,366),
@@ -54,7 +74,12 @@ class SubjectsDict():
                 "screen_size": 39.3,
                 "line_ses": 2,
                 "invert": False,
-                "bounds": True
+                "bounds": True,
+                "views": {
+                    "azimuth": 180,
+                    "altitude": 105,
+                    "radius": 163
+                },
             },
             "sub-008": {
                 "ribbon": (359,364),
@@ -63,21 +88,29 @@ class SubjectsDict():
                 "screen_size": 39.3,
                 "line_ses": 2,
                 "invert": False,
-                "bounds": True
+                "bounds": True,
+                "views": {
+                    "azimuth": 180,
+                    "altitude": 105,
+                    "radius": 163
+                },
             },
-            "sub-009": {
-                "ribbon": (358,367),
-                "exclude": [2],
-                "target": 1298,
-                "screen_size": 39.3,
-                "line_ses": 2,
-                "invert": True,
-                "bounds": True
-            }            
+            # "sub-009": {
+            #     "ribbon": (358,367),
+            #     "exclude": [2],
+            #     "target": 1298,
+            #     "screen_size": 39.3,
+            #     "line_ses": 2,
+            #     "invert": True,
+            #     "bounds": True
+            # }            
         }
 
     def get_subjects(self):
         return list(self.dict_data.keys())
+
+    def get_views(self, subject):
+        return self.dict_data[subject]["views"]
 
     def get_target(self, subject):
         return self.dict_data[subject]["target"]
@@ -122,7 +155,10 @@ def read_subject_data(
     deriv=None,
     model="gauss",
     fix_bold=True,
-    verbose=False):
+    verbose=False,
+    skip_lines=False,
+    skip_epi=False,
+    overwrite=False):
 
     subj_obj = SubjectsDict()
 
@@ -144,159 +180,163 @@ def read_subject_data(
 
     utils.verbose("\n---------------------------------------------------------------------------------------------------", verbose)
     utils.verbose(f"Dealing with {subject} [{datetime.now().strftime('%Y/%m/%d %H:%M:%S')}]", verbose)
-    utils.verbose("\n-- linescanning --", verbose)
-    
-    # add line-scanning key
-    subject_dict["lines"] = {}
 
-    ####################################################################################################
-    # LINE-SCANNING BIT
-    ####################################################################################################
+    if not skip_lines:
+        utils.verbose("\n-- linescanning --", verbose)
+        
+        # add line-scanning key
+        subject_dict["lines"] = {}
 
-    #---------------------------------------------------------------------------------------------------
-    # get low-res design 
-    dm_f = opj(prf_dir, f"{subject}_ses-{ses}_task-pRF_run-avg_desc-design_matrix.mat")
-    if os.path.exists(dm_f):
-        utils.verbose(f"Reading {dm_f}", verbose)
-        dm_ = prf.read_par_file(dm_f) 
-    else:
-        raise FileNotFoundError(f"Could not find file '{dm_f}'")
+        ####################################################################################################
+        # LINE-SCANNING BIT
+        ####################################################################################################
 
-    for tt in ["all","avg","ribbon"]:
-
-        input_data = prf.read_par_file(opj(os.path.dirname(dm_f), f"{subject}_ses-{ses}_task-pRF_run-avg_vox-{tt}_desc-data.npy"))
-        obj_ = prf.pRFmodelFitting(
-            input_data.T,
-            design_matrix=dm_,
-            model=model,
-            TR=0.105,
-            fix_bold_baseline=fix_bold,
-            verbose=verbose,
-            rsq_threshold=0,
-            screen_distance_cm=196,
-            grid_nr=40,
-            write_files=True,
-            save_grid=False,
-            output_dir=prf_dir,
-            output_base=f"{subject}_ses-{ses}_task-pRF_run-avg_vox-{tt}"
-        )
-
-        pars_file = opj(obj_.output_dir, f"{obj_.output_base}_model-{model}_stage-iter_desc-prf_params.pkl")
-        if not os.path.exists(pars_file):
-            utils.verbose(f"Could not find file '{pars_file}'. Run 'python line_fit.py with --{model}'", verbose)
+        #---------------------------------------------------------------------------------------------------
+        # get low-res design 
+        dm_f = opj(prf_dir, f"{subject}_ses-{ses}_task-pRF_run-avg_desc-design_matrix.mat")
+        if os.path.exists(dm_f):
+            utils.verbose(f"Reading {dm_f}", verbose)
+            dm_ = prf.read_par_file(dm_f) 
         else:
-            utils.verbose(f"Reading {pars_file}", verbose)
-            obj_.load_params(
-                pars_file, 
-                model=model, 
-                stage="iter")
+            raise FileNotFoundError(f"Could not find file '{dm_f}'")
 
-        subject_dict["lines"][tt] = obj_
+        for tt in ["all","avg","ribbon"]:
 
-    utils.verbose("Done", verbose)
+            input_data = prf.read_par_file(opj(os.path.dirname(dm_f), f"{subject}_ses-{ses}_task-pRF_run-avg_vox-{tt}_desc-data.npy"))
+            obj_ = prf.pRFmodelFitting(
+                input_data.T,
+                design_matrix=dm_,
+                model=model,
+                TR=0.105,
+                fix_bold_baseline=fix_bold,
+                verbose=verbose,
+                rsq_threshold=0,
+                screen_distance_cm=196,
+                grid_nr=40,
+                write_files=True,
+                save_grid=False,
+                output_dir=prf_dir,
+                output_base=f"{subject}_ses-{ses}_task-pRF_run-avg_vox-{tt}"
+            )
+
+            pars_file = opj(obj_.output_dir, f"{obj_.output_base}_model-{model}_stage-iter_desc-prf_params.pkl")
+            if not os.path.exists(pars_file) or overwrite:
+                utils.verbose(f"Could not find file '{pars_file}'. Run 'python line_fit.py with --{model}'", verbose)
+            else:
+                utils.verbose(f"Reading {pars_file}", verbose)
+                obj_.load_params(
+                    pars_file, 
+                    model=model, 
+                    stage="iter")
+
+            subject_dict["lines"][tt] = obj_
+
+        utils.verbose("Done", verbose)
 
     ####################################################################################################
     # 2D-EPI WHOLE-BRAIN BIT
     ####################################################################################################
 
-    utils.verbose("\n-- whole brain 2D-EPI --", verbose)
-    
-    # add whole-brain key
-    subject_dict["wb"] = {}
-
-    # get directories
-    data_dir = opj(
-        deriv, 
-        "pybest",
-        subject, 
-        "ses-1",
-        "unzscored")
-
-    data_files = utils.get_file_from_substring(["hemi-L","npy"], data_dir)
-
-    design_fn = opj(os.path.dirname(prf_dir), "ses-1", "design_task-2R.mat")
-    design = utils.resample2d(prf.read_par_file(design_fn), new_size=100)
-
-    # remove first 4 volumes
-    cut_vols = 4
-    design_cut = design.copy()[...,cut_vols:]
-
-    collect_vox = []
-    for _,data in enumerate(data_files):
+    if not skip_epi:
+        utils.verbose("\n-- whole brain 2D-EPI --", verbose)
         
-        # get target vertex data
-        vox_data = np.load(data)[cut_vols:,:]
+        # add whole-brain key
+        subject_dict["wb"] = {}
 
-        # convert to percent change
-        vox_psc = utils.percent_change(vox_data, 0, baseline=15)
+        # get directories
+        data_dir = opj(
+            deriv, 
+            "pybest",
+            subject, 
+            "ses-1",
+            "unzscored")
 
-        # append
-        collect_vox.append(vox_psc[...,np.newaxis])
+        data_files = utils.get_file_from_substring(["hemi-L","npy"], data_dir)
 
-    # concatenate <time,vertices,runs>
-    collect_vox = np.concatenate(collect_vox, axis=-1)
+        design_fn = opj(os.path.dirname(prf_dir), "ses-1", "design_task-2R.mat")
+        design = utils.resample2d(prf.read_par_file(design_fn), new_size=100)
 
-    # dont have 2DEPI fits for CSS/DoG model, default to Gauss unless model==norm
-    if model == "norm":
-        load_md = model
-    else:
-        load_md = "gauss"
+        # remove first 4 volumes
+        cut_vols = 4
+        design_cut = design.copy()[...,cut_vols:]
 
-    # fit average
-    runs_epi = prf.pRFmodelFitting(
-        collect_vox[:,subj_obj.get_target(subject),:].T,
-        design_matrix=design_cut,
-        fix_bold_baseline=fix_bold,
-        model=load_md,
-        verbose=verbose,
-        rsq_threshold=0.05,
-        TR=1.5,
-        screen_distance_cm=210,
-        screen_size_cm=subj_obj.get_screen_size(subject),
-        write_files=True,
-        save_grid=False,
-        output_dir=os.path.dirname(design_fn),
-        output_base=f"{subject}_acq-2DEPI_run-all",
-        nr_jobs=1
-    )
+        collect_vox = []
+        utils.verbose(f"Reading functional data from '{data_dir}'", verbose)
+        for _,data in enumerate(data_files):
+            
+            # get target vertex data
+            vox_data = np.load(data)[cut_vols:,:]
+
+            # convert to percent change
+            vox_psc = utils.percent_change(vox_data, 0, baseline=15)
+
+            # append
+            collect_vox.append(vox_psc[...,np.newaxis])
+
+        # concatenate <time,vertices,runs>
+        collect_vox = np.concatenate(collect_vox, axis=-1)
+
+        # dont have 2DEPI fits for CSS/DoG model, default to Gauss unless model==norm
+        if model == "norm":
+            load_md = model
+        else:
+            load_md = "gauss"
+
+        # fit average
+        runs_epi = prf.pRFmodelFitting(
+            collect_vox[:,subj_obj.get_target(subject),:].T,
+            design_matrix=design_cut,
+            fix_bold_baseline=fix_bold,
+            model=load_md,
+            verbose=verbose,
+            rsq_threshold=0.05,
+            TR=1.5,
+            screen_distance_cm=210,
+            screen_size_cm=subj_obj.get_screen_size(subject),
+            write_files=True,
+            save_grid=False,
+            output_dir=os.path.dirname(design_fn),
+            output_base=f"{subject}_acq-2DEPI_run-all",
+            nr_jobs=1
+        )
 
 
-    pars_file = opj(runs_epi.output_dir, f"{runs_epi.output_base}_model-{load_md}_stage-iter_desc-prf_params.pkl")
-    if not os.path.exists(pars_file):
-        utils.verbose(f"Fitting all runs [data={runs_epi.data.shape}]..", verbose)
-        runs_epi.fit()
-    else:
-        utils.verbose(f"Reading {pars_file}", verbose)
-        runs_epi.load_params(
-            pars_file, 
-            model=load_md, 
-            stage="iter")
+        pars_file = opj(runs_epi.output_dir, f"{runs_epi.output_base}_model-{load_md}_stage-iter_desc-prf_params.pkl")
+        if not os.path.exists(pars_file) or overwrite:
+            utils.verbose(f"Fitting all runs [data={runs_epi.data.shape}]..", verbose)
+            runs_epi.fit()
+        else:
+            utils.verbose(f"Reading {pars_file}", verbose)
+            runs_epi.load_params(
+                pars_file, 
+                model=load_md, 
+                stage="iter")
 
-    subject_dict["wb"]['runs'] = runs_epi
+        subject_dict["wb"]['runs'] = runs_epi
 
-    # collect avg whole brain pRF estimates
-    avg = np.median(collect_vox, axis=-1)
-    avg_epi = prf.pRFmodelFitting(
-        avg.T,
-        design_matrix=design_cut,
-        model=load_md,
-        verbose=verbose,
-        TR=1.5,
-        screen_distance_cm=210
-    )
+        # collect avg whole brain pRF estimates
+        avg = np.median(collect_vox, axis=-1)
+        avg_epi = prf.pRFmodelFitting(
+            avg.T,
+            design_matrix=design_cut,
+            model=load_md,
+            verbose=verbose,
+            TR=1.5,
+            screen_distance_cm=210
+        )
 
-    pars_file = opj(os.path.dirname(design_fn), f"{subject}_ses-1_task-2R_roi-V1_model-{load_md}_stage-iter_desc-prf_params.pkl")
-    
-    if not os.path.exists(pars_file):
-        raise FileNotFoundError(f"Could not find file '{pars_file}'. Run 'master -m 17' with '--v1' and '--norm'")
-    else:
-        utils.verbose(f"Reading {pars_file}", verbose)
-        avg_epi.load_params(
-            pars_file, 
-            model=load_md, 
-            stage="iter")
+        pars_file = opj(os.path.dirname(design_fn), f"{subject}_ses-1_task-2R_roi-V1_model-{load_md}_stage-iter_desc-prf_params.pkl")
+        
+        if not os.path.exists(pars_file):
+            raise FileNotFoundError(f"Could not find file '{pars_file}'. Run 'master -m 17' with '--v1' and '--norm'")
+        else:
+            utils.verbose(f"Reading {pars_file}", verbose)
+            avg_epi.load_params(
+                pars_file, 
+                model=load_md, 
+                stage="iter")
 
-    subject_dict["wb"]['avg'] = avg_epi
-    subject_dict["subject"] = subject
+        subject_dict["wb"]['avg'] = avg_epi
+        subject_dict["subject"] = subject
 
     return subject_dict
