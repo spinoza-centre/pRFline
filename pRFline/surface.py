@@ -81,47 +81,22 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
         self.kernel = kernel
         self.iterations = iterations
         if hasattr(self, "subsurface_verts"):
-            utils.verbose(f"Target vertex was '{self.target_vert}'", verbose=self.verbose)
+            
             # create array with all distances from V1 EPI data to line pRF
+            utils.verbose(f"Target vertex was '{self.target_vert}'", verbose=self.verbose)
             self.dist_array = np.full(self.pars_epi.shape[0], np.nan)
             for ii in self.subsurface_verts:
                 dist = prf.distance_centers(self.pars_line[0], self.pars_epi[ii,:])
                 self.dist_array[ii] = dist
 
-            # smooth data
-            self.use_distance_data = self.dist_array.copy()
-            if self.smooth:
-                utils.verbose(f"Smoothing distance map with 'factor={self.kernel}' & 'iterations={self.iterations}'", verbose=self.verbose)
-                tmp = np.full(self.pars_epi.shape[0], np.nan)
-                for i in ["lh","rh"]:
-                    if i == "lh":
-                        sm_ = self.lh_subsurf.smooth(
-                            self.dist_array[self.lh_subsurf_v], 
-                            factor=self.kernel, 
-                            iterations=self.iterations)
-
-                        tmp[self.lh_subsurf_v] = sm_
-                    elif i == "rh":
-                        sm_ = self.rh_subsurf.smooth(
-                            self.dist_array[self.rh_subsurf_v], 
-                            factor=self.kernel, 
-                            iterations=self.iterations)
-                        
-                        tmp[self.rh_subsurf_v] = sm_
-
-                self.dist_array_sm = tmp.copy()
-                self.use_distance_data = self.dist_array_sm.copy()
-
             # get the vertex closest to the line pRF
-            self.closest_to_minimum_distance = np.where(self.use_distance_data == np.nanmin(self.use_distance_data))[0][0]
-            self.dva_dist = self.use_distance_data[self.closest_to_minimum_distance]
+            self.closest_to_minimum_distance = np.where(self.dist_array == np.nanmin(self.dist_array))[0][0]
+            self.dva_dist = self.dist_array[self.closest_to_minimum_distance]
             utils.verbose(f"Smallest difference = {round(self.dva_dist,2)}dva (vertex='{self.closest_to_minimum_distance}')", verbose=self.verbose)
 
             # get the distance between that vertex & target vertex
-            active_hemi = getattr(self, f"{self.hemi}_dist_to_targ")
-            self.dist_geodesic = active_hemi[self.closest_to_minimum_distance]
-
-            utils.verbose(f"Geodesic distance '{self.closest_to_minimum_distance}' to '{self.target_vert}' = {round(self.dist_geodesic,2)}mm", verbose=self.verbose)
+            self.active_hemi = getattr(self, f"{self.hemi}_dist_to_targ")
+            self.dist_geodesic = self.active_hemi[self.closest_to_minimum_distance]
 
             # get euclidian distance
             surf = getattr(self, f"{self.hemi}_surf_data")[0]
@@ -129,7 +104,42 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
             self.coord_match = surf[self.closest_to_minimum_distance]
             self.dist_euclidian = math.dist(self.coord_targ,self.coord_match)
 
-            utils.verbose(f"Euclidian distance '{self.closest_to_minimum_distance}' to '{self.target_vert}' = {round(self.dist_euclidian,2)}mm", verbose=self.verbose)            
+            utils.verbose(f"Geodesic distance '{self.closest_to_minimum_distance}' to '{self.target_vert}' = {round(self.dist_geodesic,2)}mm [unsmoothed]", verbose=self.verbose)
+
+            utils.verbose(f"Euclidian distance '{self.closest_to_minimum_distance}' to '{self.target_vert}' = {round(self.dist_euclidian,2)}mm [unsmoothed]", verbose=self.verbose)
+
+            if self.smooth:
+                utils.verbose(f"Smoothing distance map with 'factor={self.kernel}' & 'iterations={self.iterations}'", verbose=self.verbose)
+                self.dist_array_sm = np.full(self.pars_epi.shape[0], np.nan)
+
+                # smooth distance map on V1 subsurfaces
+                for vert,surf in zip(
+                    [self.lh_subsurf_v,self.rh_subsurf_v],
+                    [self.lh_subsurf,self.rh_subsurf]):
+
+                    self.dist_array_sm[vert] = surf.smooth(
+                        self.dist_array[vert], 
+                        factor=self.kernel, 
+                        iterations=self.iterations)
+
+                # get the vertex closest to the line pRF
+                self.closest_to_minimum_distance_sm = np.where(self.dist_array_sm == np.nanmin(self.dist_array_sm))[0][0]
+                self.dva_dist_sm = self.dist_array_sm[self.closest_to_minimum_distance_sm]
+                utils.verbose(f"Smallest difference = {round(self.dva_dist,2)}dva (vertex='{self.closest_to_minimum_distance_sm}')", verbose=self.verbose)
+
+                # get the distance between that vertex & target vertex
+                self.active_hemi = getattr(self, f"{self.hemi}_dist_to_targ")
+                self.dist_geodesic_sm = self.active_hemi[self.closest_to_minimum_distance_sm]
+
+                # get euclidian distance
+                surf = getattr(self, f"{self.hemi}_surf_data")[0]
+                self.coord_targ_sm = surf[self.target_vert]
+                self.coord_match_sm = surf[self.closest_to_minimum_distance_sm]
+                self.dist_euclidian_sm = math.dist(self.coord_targ_sm,self.coord_match_sm)
+        
+                utils.verbose(f"Geodesic distance '{self.closest_to_minimum_distance_sm}' to '{self.target_vert}' = {round(self.dist_geodesic_sm,2)}mm [smoothed]", verbose=self.verbose)
+
+                utils.verbose(f"Euclidian distance '{self.closest_to_minimum_distance_sm}' to '{self.target_vert}' = {round(self.dist_euclidian_sm,2)}mm [smoothed]", verbose=self.verbose)       
 
     def make_vertex(self, **kwargs):
         
@@ -148,20 +158,19 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
                 else:
                     setattr(self, xx, qq)
 
+
         # fill target vertex & best-matching vertex
         if self.annotate:
-            self.use_distance_data[self.closest_to_minimum_distance] = self.annotate_value
-            self.use_distance_data[self.target_vert] = self.annotate_value
 
-            self.target_matched = np.full_like(self.use_distance_data, 0)
+            self.target_matched = np.full_like(self.dist_array, 0)
             self.target_matched[self.closest_to_minimum_distance] = -self.annotate_value
             self.target_matched[self.target_vert] = self.annotate_value
             
-            alpha_mask = np.full_like(self.use_distance_data, 0)
-            alpha_mask[self.target_matched != 0] = 1
+            alpha_targ = np.full_like(self.use_distance_data, 0)
+            alpha_targ[self.target_matched != 0] = 1
             self.target_matched_v = pycortex.Vertex2D_fix(
                 self.target_matched,
-                alpha_mask,
+                alpha_targ,
                 self.subject,
                 "seismic",
                 vmin=-10,
@@ -170,17 +179,56 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
                 vmax2=1
             )
 
-        alpha_mask = self.whole_roi.copy()
         if self.one_hemi:
             if self.hemi == "lh":
-                self.use_distance_data[self.lh_roi_mask.shape[0]:] = np.nan
+                self.dist_array[self.lh_roi_mask.shape[0]:] = np.nan
+                self.dist_array_sm[self.lh_roi_mask.shape[0]:] = np.nan
             elif self.hemi == "rh":
-                self.use_distance_data[:self.lh_roi_mask.shape[0]] = np.nan
-    
-        # make vertex objects
+                self.dist_array[:self.lh_roi_mask.shape[0]] = np.nan
+                self.dist_array_sm[:self.lh_roi_mask.shape[0]] = np.nan
+        
+        # use V1 as alpha mask
+        alpha_v1 = self.whole_roi.copy()
+
+        # mask with r2 to avoid distances of pRFs with (0,0) as XY
+        self.dist_array[self.pars_epi[:,-1]<0.1] = np.nan
         self.dist_v = pycortex.Vertex2D_fix(
-            self.use_distance_data,
-            alpha_mask,
+            self.dist_array,
+            alpha_v1,
+            self.subject,
+            self.cmap,
+            vmin=self.vmin,
+            vmax=self.vmax,
+            vmin2=0,
+            vmax2=1
+        )
+        
+        self.curv = cortex.db.get_surfinfo(self.subject)
+        self.curv.data = np.sign(self.curv.data) * .25
+        self.curv_v = cortex.Vertex(self.curv.data, self.subject, vmin=-1,vmax=1,cmap='gray')
+
+        if self.smooth:
+            self.target_matched_sm = np.full_like(self.dist_array_sm, 0)
+            self.target_matched_sm[self.closest_to_minimum_distance_sm] = -self.annotate_value
+            self.target_matched_sm[self.target_vert] = self.annotate_value
+
+            alpha_targ = np.full_like(self.use_distance_data, 0)
+            alpha_targ[self.target_matched_sm != 0] = 1            
+            self.target_matched_v_sm = pycortex.Vertex2D_fix(
+                self.target_matched_sm,
+                alpha_targ,
+                self.subject,
+                "seismic",
+                vmin=-10,
+                vmax=10,
+                vmin2=0,
+                vmax2=1
+            )
+        
+        self.dist_array_sm[self.pars_epi[:,-1]<0.1] = np.nan
+        self.dist_v_sm = pycortex.Vertex2D_fix(
+            self.dist_array_sm,
+            alpha_v1,
             self.subject,
             self.cmap,
             vmin=self.vmin,
@@ -189,33 +237,22 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
             vmax2=1
         )
 
-        if self.smooth:
-            # make vertex objects
-            self.dist_v_raw = pycortex.Vertex2D_fix(
-                self.dist_array,
-                alpha_mask,
-                self.subject,
-                self.cmap,
-                vmin=self.vmin,
-                vmax=self.vmax,
-                vmin2=0,
-                vmax2=1
-            )    
+        self.data_dict = {}
+        for ii in ["dist_v","target_matched_v"]:
+            if hasattr(self, ii):
+                self.data_dict[ii] = getattr(self, f"{ii}")
+
+            if hasattr(self, f"{ii}_sm"):
+                self.data_dict[f"{ii}_sm"] = getattr(self, f"{ii}_sm")
+
+        self.data_dict["curvature"] = self.curv_v
 
     def webshow(self, **kwargs):
         import cortex
-        if not hasattr(self, "dist_v"):
+        if not hasattr(self, "data_dict"):
             self.make_vertex(**kwargs)
 
-        data = {"distance": self.dist_v}
-        if hasattr(self, "target_matched_v"):
-            data["targ-match"] = self.target_matched_v
-
-        if hasattr(self, "dist_v_raw"):
-            data["no smoothing"] = self.dist_v_raw
-
-        cortex.webgl.show(data)
-
+        cortex.webgl.show(self.data_dict)
 
 class PredpRF(prf.pRFmodelFitting):
 
