@@ -1,8 +1,10 @@
 from linescanning import(
     plotting,
     utils,
-    prf
+    prf,
+    glm
 )
+from sklearn.metrics import r2_score
 from pRFline.utils import (
     SubjectsDict,
     read_subject_data,
@@ -98,7 +100,7 @@ class MainFigure():
 
             # parse into dataframe
             epi_avg = getattr(avg_obj, f"{self.model}_iter")[self.subj_obj.get_target(sub),:]
-            epi_df = prf.SizeResponse.parameters_to_df(epi_avg, model=self.model)
+            epi_df = prf.Parameters.to_df(epi_avg, model=self.model)
             epi_df["subject"],epi_df["run"],epi_df["acq"], epi_df["code"] = sub, "avg", "epi avg", 0
 
             self.df_params.append(epi_df)
@@ -116,7 +118,7 @@ class MainFigure():
                     make_figure=False
                 )
 
-                pars_df = prf.SizeResponse.parameters_to_df(pars, model=self.model)
+                pars_df = prf.Parameters.to_df(pars, model=self.model)
                 pars_df["subject"],pars_df["run"],pars_df["acq"],pars_df["code"] = sub, run+1,"epi runs",1
 
                 self.df_params.append(pars_df)
@@ -128,7 +130,7 @@ class MainFigure():
                 make_figure=False
             )
 
-            line_df = prf.SizeResponse.parameters_to_df(avg_line, model=self.model)
+            line_df = prf.Parameters.to_df(avg_line, model=self.model)
             line_df["subject"],line_df["run"],line_df["acq"],line_df["code"] = sub, "avg", "line avg", 2
 
             self.df_params.append(line_df)
@@ -142,7 +144,7 @@ class MainFigure():
                     make_figure=False
                 )
 
-                pars_df = prf.SizeResponse.parameters_to_df(pars, model=self.model)
+                pars_df = prf.Parameters.to_df(pars, model=self.model)
                 pars_df["subject"],pars_df["run"],pars_df["acq"],pars_df["code"] = sub, f"depth-{depth+1}","ribbon",3
 
                 self.df_params.append(pars_df)
@@ -150,7 +152,7 @@ class MainFigure():
             # do full line
             pars = getattr(full_obj, f"{self.model}_iter").copy()
             vox_range = np.arange(pars.shape[0])
-            pars_df = prf.SizeResponse.parameters_to_df(pars, model=self.model)
+            pars_df = prf.Parameters.to_df(pars, model=self.model)
             pars_df["subject"],pars_df["run"],pars_df["acq"],pars_df["code"] = sub, [f"vox-{ii}" for ii in vox_range],"full",4
 
             self.df_params.append(pars_df)
@@ -831,20 +833,10 @@ class CrossBankFigure(MainFigure):
 
         plt.tight_layout()
 
-        # make annotations
-        dist_from_x0 = 1/(self.fig.get_size_inches()*self.fig.dpi)[0]*50
-        for ix,ax in enumerate(self.fig.axes):
-
-            if ix < 1:
-                pos = ax.get_position().x0-0.075
-            else:
-                pos = ax.get_position().x0-0.09
-        
-            ax.annotate(
-                self.alphabet[ix], 
-                (pos,1.01), 
-                fontsize=28, 
-                xycoords="figure fraction")
+        plotting.fig_annot(
+            self.fig,
+            x0_corr=-0.8,
+            x_corr=-0.8)
                 
         # save figure?
         if isinstance(save_as, str):
@@ -861,6 +853,437 @@ class CrossBankFigure(MainFigure):
                 )
 
         plt.show()            
+
+class WholeBrainToLine(MainFigure):
+
+    def __init__(
+        self,
+        TR=0.105,
+        hrf_pars=[1,4.6,0],
+        h5_file=None,
+        **kwargs):
+
+        self.h5_file = h5_file
+        self.TR = TR
+        self.hrf_pars = hrf_pars
+        self.__dict__.update(kwargs)
+        super().__init__(**kwargs)
+
+        self.read_attributes = [
+            'df_exp_r2', 
+            'df_exp_pred',
+            'df_exp_pars']
+
+        if isinstance(self.h5_file, str) and os.path.exists(self.h5_file):
+            self.from_hdf(self.h5_file)
+        else:
+            self.parallel_predictions()
+            self.to_hdf(output_file=self.h5_file)
+
+    def from_hdf(self, input_file=None):
+
+        if input_file == None:
+            raise ValueError("No output file specified")
+        else:
+            self.h5_file = input_file
+
+        utils.verbose(f"Reading from {self.h5_file}", self.verbose)
+        hdf_store = pd.HDFStore(self.h5_file)
+        hdf_keys = hdf_store.keys()
+        for key in hdf_keys:
+            key = key.strip("/")
+            
+            if self.verbose:
+                utils.verbose(f" Setting attribute: {key}", self.verbose)
+
+            setattr(self, key, hdf_store.get(key))
+
+        utils.verbose("Done", self.verbose)
+        hdf_store.close()     
+
+    def to_hdf(self, output_file=None, overwrite=False):
+
+        if output_file == None:
+            raise ValueError("No output file specified")
+        else:
+            self.h5_file = output_file
+
+        if overwrite:
+            if os.path.exists(self.h5_file):
+                store = pd.HDFStore(self.h5_file)
+                store.close()
+                os.remove(self.h5_file)
+
+        utils.verbose(f"Saving to {self.h5_file}", self.verbose)
+        for attr in self.read_attributes:
+            if hasattr(self, attr):
+                
+                if self.verbose:
+                    utils.verbose(f" Storing attribute: {attr}", self.verbose)
+                    
+                add_df = getattr(self, attr)
+                if os.path.exists(self.h5_file):
+                    add_df.to_hdf(self.h5_file, key=attr, append=True, mode='r+', format='t')
+                else:
+                    store = pd.HDFStore(self.h5_file)
+                    store.close()
+                    add_df.to_hdf(self.h5_file, key=attr, mode='w', format='t')
+        
+        utils.verbose("Done", self.verbose)
+
+        store = pd.HDFStore(self.h5_file)
+        store.close()      
+
+    def parallel_predictions(self, parallel=True):
+        
+        if parallel:
+            n_jobs = len(self.process_subjs)
+            self.parallel_output = Parallel(n_jobs=n_jobs,verbose=False)(
+                delayed(self.fetch_predictions)(subject)
+                for subject in self.process_subjs
+            )
+        else:
+            self.parallel_output = []
+            for subject in ["sub-001"]:
+                self.parallel_output.append(self.fetch_predictions(subject))
+
+        # parse output to full dataframes
+        self.df_exp_r2 = []
+        self.df_exp_pred = []
+        self.df_exp_pars = []
+        for ix in range(len(self.parallel_output)):
+            self.df_exp_pred.append(self.parallel_output[ix][0])
+            self.df_exp_r2.append(self.parallel_output[ix][1])
+            self.df_exp_pars.append(self.parallel_output[ix][2])
+
+        self.df_exp_pred = pd.concat(self.df_exp_pred)
+        self.df_exp_r2 = pd.concat(self.df_exp_r2)
+        self.df_exp_pars = pd.concat(self.df_exp_pars)
+
+    def fetch_predictions(
+        self,
+        subject=None):
+        
+        utils.verbose(f"Dealing with {subject}", self.verbose)
+
+        # initialize r2 dataframe
+        self.df_subj_r2 = {}
+        for param in ["acq","code","r2"]:
+            self.df_subj_r2[param] = []
+
+        # get design matrix and functional data
+        ses = self.subj_obj.get_session(subject)
+        dm = opj(
+            self.deriv,
+            "prf",
+            subject,
+            f"ses-{ses}",
+            f"{subject}_ses-{ses}_task-pRF_run-avg_desc-design_matrix.mat"
+            )
+
+        func = opj(
+            self.deriv,
+            "prf",
+            subject,
+            f"ses-{ses}",
+            f"{subject}_ses-{ses}_task-pRF_run-avg_vox-avg_desc-data.npy"
+            )            
+
+        # initialize prf objects
+        self.sb = self.initialize_prf_objects(
+            subject=subject,
+            func=func,
+            dm=dm)
+
+        # get design matrix as block design
+        dm_as_block = np.array([self.sb["line_obj"].design_matrix[...,ii].sum()>0 for ii in range(self.sb["line_obj"].design_matrix.shape[-1])])
+
+        # convolve with HRF
+        avg_tc = np.squeeze(self.sb["tc_bold"])
+        pred_block = self.run_glm(
+            avg_tc,
+            dm_as_block,
+            convolve_hrf=True,
+            hrf_pars=self.hrf_pars
+        )
+
+        # get r2
+        r2_block = r2_score(avg_tc,pred_block)
+        # utils.verbose(f" r2 of GLM with pRF design as block design: {r2_block}", self.verbose)
+        for ii,par in zip(list(self.df_subj_r2.keys()),["block",0,r2_block]):
+            self.df_subj_r2[ii].append(par)
+
+        # run GLM on EPI prediction
+        pred_epi_fitted = self.run_glm(
+            avg_tc,
+            self.sb["epi_pred_glm"],
+            convolve_hrf=False
+        )
+
+        # get r2
+        r2_epi = r2_score(avg_tc,pred_epi_fitted)
+        # utils.verbose(f" r2 of GLM with on EPI prediction: {r2_epi}", self.verbose)
+        for ii,par in zip(list(self.df_subj_r2.keys()),["epi",1,r2_epi]):
+            self.df_subj_r2[ii].append(par)
+
+        for ii,par in zip(list(self.df_subj_r2.keys()),["line",2,getattr(self.sb["line_obj"], f"{self.model}_iter")[0,-1]]):
+            self.df_subj_r2[ii].append(par)                
+
+        self.df_subj_r2 = pd.DataFrame(self.df_subj_r2)
+        self.df_subj_r2["subject"] = subject
+
+        # put preditions in dataframe
+        self.df_subj_pred = {}
+        for ii,par in zip(
+            ["epi_pred_glm","line_pred","epi_block","epi_pred","tc_bold"],
+            [pred_epi_fitted,self.sb["line_pred"],pred_block,self.sb["epi_pred"],self.sb["tc_bold"]]):
+            self.df_subj_pred[ii] = np.squeeze(par)
+
+        self.df_subj_pred = pd.DataFrame(self.df_subj_pred)
+        self.df_subj_pred["subject"] = subject
+        self.df_subj_pred["t"] = list(np.arange(0,self.df_subj_pred.iloc[:,0].values.shape[0])*self.TR)
+        self.df_subj_pred = self.df_subj_pred.set_index(["subject","t"])
+
+        # get predicted parameters
+        self.df = []
+        for ix,ii in enumerate(["line_pars","epi_pars"]):
+            self.tmp = prf.Parameters(self.sb[ii], model=self.model).to_df()
+            self.tmp["type"] = ii
+            self.tmp["code"] = ix
+            self.tmp["subject"] = subject
+            self.df.append(self.tmp)
+
+        self.df_subj_pars = pd.concat(self.df)
+        self.df_subj_pars = self.df_subj_pars.set_index(["subject","type","code"])
+
+        return self.df_subj_pred,self.df_subj_r2,self.df_subj_pars
+
+    def run_glm(
+        self,
+        data,
+        regressor,
+        convolve_hrf=False,
+        **kwargs):
+        
+        if convolve_hrf:
+            self.hrf = glm.define_hrf(**kwargs)
+            self.stim_vector = glm.convolve_hrf(
+                self.hrf, 
+                regressor, 
+                TR=self.TR,
+                make_figure=False)
+        else:
+            self.stim_vector = regressor.copy()
+
+        # create design matrix
+        self.lvl1 = glm.first_level_matrix(self.stim_vector)
+
+        # run glm
+        self.results = glm.fit_first_level(
+            self.lvl1, 
+            data, 
+            make_figure=False)
+        
+        self.betas = self.results["betas"][1,:]
+        self.event = self.results["x_conv"][:,1][...,np.newaxis]
+        
+        return np.squeeze(self.event@self.betas)
+
+    def plot_block_vs_epi(self, axs=None, exclude_line=True, posthoc=False, **kwargs):
+
+        if axs == None:
+            if exclude_line:
+                figsize = (1.5,8)
+            else:
+                figsize = (2,8)
+
+            _,axs = plt.subplots(figsize=figsize)
+        
+        # exclude line from bar plot or not (default = True)
+        if exclude_line:
+            df = utils.select_from_df(self.df_exp_r2, expression="acq != line")
+        else:
+            df = self.df_exp_r2.copy()
+
+        self.block_plot = plotting.LazyBar(
+            data=df,
+            x="acq",
+            y="r2",
+            sns_ori="v",
+            sns_rot=-20,
+            sns_offset=5,
+            axs=axs,
+            add_labels=True,
+            color="#cccccc",
+            add_points=True,
+            points_cmap=self.sub_colors,
+            points_hue="subject",    
+            y_label2="variance explained (r2)",
+            lim=[0,1],
+            ticks=list(np.arange(0,1.2,0.2)),
+            fancy=True,
+            trim_bottom=True)
+
+        # run posthoc?
+        if posthoc:
+            self.posth = Posthoc(
+                df=df,
+                dv="r2",
+                between="acq",
+                axs=axs,
+                **kwargs)
+
+            self.posth.plot_bars()            
+
+    def plot_predictions(
+        self, 
+        axs=None,
+        subject="sub-002",
+        figsize=(24,5),
+        vf_extent=[-5,5],
+        save_as=None,
+        **kwargs):
+        
+        # set bar width according to number of bars
+        if len(kwargs) > 0:
+            if "exclude_line" in list(kwargs.keys()):
+                ww = 0.15
+            else:
+                ww = 0.08
+
+        if not isinstance(axs, list):
+            self.fig,(ax1,ax2,ax3) = plt.subplots(
+                ncols=3,
+                figsize=figsize,
+                gridspec_kw={
+                    "width_ratios": [0.5,1,ww]
+                })
+
+        if not hasattr(self, "color"):
+            self.color = ["#cccccc","#1B9E77","#D95F02"]
+
+        # get subject object
+        subjs = np.unique(self.df_exp_pred.reset_index()["subject"])
+        if not subject in list(subjs):
+            subj = list(subjs)[0]
+        else:
+            subj = subject
+        
+        self.data_for_plot = utils.select_from_df(self.df_exp_pred, expression=f"subject = {subj}")
+        self.pars_for_plot = utils.select_from_df(self.df_exp_pars, expression=f"subject = {subj}")
+
+        # make prfs
+        plotting.LazyPRF(
+            np.zeros((500,500)), 
+            cmap=utils.make_binary_cm(self.color[-1]),
+            vf_extent=vf_extent,
+            cross_color="k",
+            edge_color=None,
+            shrink_factor=0.9,
+            vf_only=True,
+            ax=ax1)
+
+        for ii,col in zip([0,1],self.color[-2:]):
+
+            pars = utils.select_from_df(self.pars_for_plot, expression=f"code = {ii}").values
+            circ = plt.Circle(
+                (pars[0,0],pars[0,1]),
+                pars[0,2],
+                ec=col,
+                lw=2,
+                fill=False)
+
+            ax1.add_artist(circ)
+
+        for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.98,0.51),(0.51,0),(0.51,0.96)]):
+            ax1.annotate(
+                ii,
+                val,
+                fontsize=self.plot_defaults.label_size,
+                xycoords="axes fraction"
+            )            
+
+        self.x_axis = np.array(list(np.arange(0,self.data_for_plot.shape[0])*self.TR))
+        plotting.LazyPlot(
+            [self.data_for_plot[qq].values for qq in ["tc_bold","line_pred","epi_pred_glm"]],
+            xx=self.x_axis,
+            add_hline="default",
+            color=self.color,
+            line_width=[1,3,3],
+            markers=['.',None,None],
+            x_label="time (s)",
+            y_label="amplitude",
+            labels=['data','line','epi'],
+            axs=ax2,
+            x_lim=[0,int(self.x_axis[-1])],
+            x_ticks=list(np.arange(0,self.x_axis[-1]+40,40)))
+
+        # bar plot with epi pRF vs design as block
+        self.plot_block_vs_epi(axs=ax3, **kwargs)
+
+        # move the timecourse plot towards middle
+        plt.tight_layout()
+
+        box = ax2.get_position()
+        box.x0 -= 0.03
+        box.x1 -= 0.03
+        ax2.set_position(box)
+
+        # add annotations
+        plotting.fig_annot(
+            self.fig,
+            x_corr=-0.8)
+
+        # save figure?
+        if isinstance(save_as, str):
+            for ext in ["png","svg"]:
+
+                fname = f"{save_as}.{ext}"
+                utils.verbose(f"Writing '{fname}'", self.verbose)
+
+                self.fig.savefig(
+                    fname,
+                    bbox_inches="tight",
+                    dpi=300,
+                    facecolor="white"
+                )
+
+    def initialize_prf_objects(
+        self, 
+        subject=None,
+        func=None,
+        dm=None):
+
+        # initiate class
+        output = {}
+        for ix,it in zip(["epi","line"],[0,2]):
+            # utils.verbose(f" Initializing '{ix}' pRF-object", self.verbose)
+            tmp = prf.pRFmodelFitting(
+                func,
+                design_matrix=dm,
+                TR=self.TR,
+                verbose=False,
+                screen_distance_cm=196
+                )
+
+            # load existing parameters based on `code`
+            tmp_pars = utils.select_from_df(self.df_params, expression=(f"subject = {subject}", "&", f"code = {it}"))
+
+            tmp.load_params(
+                tmp_pars,
+                model=self.model,
+                stage="iter")
+
+            pars,rf,tc,pred = tmp.plot_vox(model=self.model,make_figure=False)
+
+            output[f"{ix}_pars"] = pars
+            output[f"{ix}_obj"] = tmp
+            output[f"{ix}_rf"] = rf
+            output[f"{ix}_pred"] = pred
+        
+        output["tc_bold"] = tc
+
+        return output
 
 class Posthoc(plotting.Defaults):
 
@@ -914,9 +1337,14 @@ class Posthoc(plotting.Defaults):
         # sort posthoc so that bars furthest away are on top (if significant)
         self.posthoc_sorted = sort_posthoc(self.posthoc)
 
-        if not all((self.posthoc_sorted["p-corr"]<self.alpha) == False):
+        if "p-corr" in list(self.posthoc_sorted.columns):
+            p_meth = "p-corr"
+        else:
+            p_meth = "p-unc"
+
+        if not all((self.posthoc_sorted[p_meth]<self.alpha) == False):
             for contr in range(self.posthoc_sorted.shape[0]):
-                if self.posthoc_sorted["p-corr"].iloc[contr]<self.alpha:
+                if self.posthoc_sorted[p_meth].iloc[contr]<self.alpha:
                     
                     txt = "*"
                     style = None
@@ -948,4 +1376,4 @@ class Posthoc(plotting.Defaults):
                         style=style)
 
                     # make subsequent bar lower than first
-                    self.y_pos -= 0.05
+                    self.y_pos -= 0.065
