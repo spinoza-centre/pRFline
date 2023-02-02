@@ -75,16 +75,17 @@ Example
     # initialize class
     im3 = figures.WholeBrainToLine(
         full_dict=params_fn,
+        h5_file=h5_file,
         model=model,
         verbose=True  
     )
 
     im3.plot_predictions(
         subject=subject, 
-        h5_file=h5_file,
         exclude_line=False, 
         posthoc=True,
-        save_as=opj(os.path.dirname(params_fn), f"sub-all_model-{model}_desc-figure0"))
+        save_as=opj(os.path.dirname(params_fn), f"sub-all_model-{model}_desc-figure0"),
+        ast_frac=0.05)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
