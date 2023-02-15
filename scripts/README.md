@@ -52,12 +52,17 @@ For the line-experiments, we can run `line_fit.py`, which internally preprocesse
   subj_dir=$DIR_DATA_HOME/${base_path}/anat
   mov=${subj_dir}/${base}_acq-1slice_run-1_T1w.nii.gz
   for run in `seq 1 ${n_runs}`; do
-    ref=${subj_dir}/${base}_acq-1slice_run-${run}_T1w.nii.gz
 
-    # open ITK-Snap > ctrl+R  (or 'cmd+R' on mac) > 'manual' > align
-    # press the floppy button on the bottom right, save as:
-    echo "save image as ${subj_dir}/from-run1_to-run${run}.txt"
-    itksnap -g ${ref} -o ${mov}
+    if [[ ${run} -eq 1 ]]; then
+      call_createident ${subj_dir}/from-run1_to-run${run}.txt
+    else
+      ref=${subj_dir}/${base}_acq-1slice_run-${run}_T1w.nii.gz
+
+      # open ITK-Snap > ctrl+R  (or 'cmd+R' on mac) > 'manual' > align
+      # press the floppy button on the bottom right, save as:
+      echo "save image as ${subj_dir}/from-run1_to-run${run}.txt"
+      itksnap -g ${ref} -o ${mov}
+    fi
   done
   ```
  The call is as follows:
