@@ -60,7 +60,7 @@ Example
     overwrite = False
 
     try:
-        opts = getopt.getopt(argv,"hm:v:k:i:o:",["help", "subject=", "session=", "no_verbose", "norm", "gauss", "dog", "css", "lp", "lh", "rh", "webshow", "sm", "smooth", "kernel", "iter", "no_verbose", "plot", "ow", "overwite"])[0]
+        opts = getopt.getopt(argv,"hm:v:k:i:o:s:",["help", "subject=", "session=", "no_verbose", "norm", "gauss", "dog", "css", "lp", "lh", "rh", "webshow", "sm", "smooth", "kernel", "iter", "no_verbose", "plot", "ow", "overwite"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?", flush=True)
         print(main.__doc__, flush=True)
@@ -107,12 +107,8 @@ Example
 
     # set defaults
     base_dir    = "/data1/projects/MicroFunc/Jurjen/projects/VE-pRF"
-    design_dir  = opj(opd(opd(pRFline.__file__)), "data")
-    fig_dir     = opj(opd(opd(pRFline.__file__)), "results")
-
-    if filt_strat == "lp":
-        add = "_lp3"
-        design_dir += add
+    results_dir = opj(opd(opd(pRFline.__file__)), "results")
+    data_dir = opj(opd(opd(pRFline.__file__)), "data")
 
     # fetch subject dictionary from pRFline.utils.SubjectsDict
     subj_obj = SubjectsDict()
@@ -120,8 +116,10 @@ Example
 
     if subject == "all":
         process_list = list(dict_data.keys())
+        check_file_exists = True
     else:
         process_list = [subject]
+        check_file_exists = False
 
     # initiate dictionary
     distsurf = {}
@@ -151,7 +149,7 @@ Example
         else:
             add_str = "smooth-false"
 
-        base = f"{subject}_model-{model}_{add_str}"
+        base = f"{subject}_ses-{ses}_model-{model}_{add_str}"
         
         # prf directory
         prf_dir = opj(
@@ -207,24 +205,17 @@ Example
                 # make the vertex objects
                 sg.make_vertex(one_hemi=True)
 
-                # create data dict
-                data_d = {
-                    "distance": sg.dist_v,
-                    "targ-match": sg.target_matched_v,
-                    "curvature": sg.curv_v
-                }
-
                 # save image if not exists or if overwrite==True
-                data_keys = list(data_d.keys())
-                fn_image = opj(fig_dir, subject, f"{base}_desc-{data_keys[0]}.png")
-                fn_image2 = opj(fig_dir, subject, f"{base}_desc-{data_keys[1]}.png")
+                data_keys = list(sg.data_dict.keys())
+                fn_image = opj(results_dir, subject, f"{base}_desc-{data_keys[0]}.png")
+                fn_image2 = opj(results_dir, subject, f"{base}_desc-{data_keys[1]}.png")
 
                 if not os.path.exists(fn_image) or overwrite or webshow:
                     # initialize saving object (also opens the webviewers)
                     pyc_save = pycortex.SavePycortexViews(
-                        data_d,
+                        sg.data_dict,
                         subject=subject,
-                        fig_dir=opj(fig_dir,subject),
+                        fig_dir=opj(results_dir,subject),
                         zoom=True,
                         base_name=base)
 
@@ -265,11 +256,12 @@ Example
 
     base = f"sub-all_model-{model}_{add_str}"
     if len(distsurf) > 0:
-        fname = opj(fig_dir, f"{base}_desc-dist_on_surf.csv")
-        utils.verbose(f"Writing {fname}", verbose)
-        df_surf = pd.DataFrame(distsurf)
-        df_surf["ix"] = 0
-        df_surf.to_csv(fname)
+        if check_file_exists:
+            fname = opj(data_dir, f"{base}_desc-dist_on_surf.csv")
+            utils.verbose(f"Writing {fname}", verbose)
+            df_surf = pd.DataFrame(distsurf)
+            df_surf["ix"] = 0
+            df_surf.to_csv(fname)
 
     if full_plot:
         for ix,img in enumerate(["dist_on_surf","targ_on_surf"]):
@@ -278,7 +270,7 @@ Example
             else:
                 ff = fig2
 
-            fname = opj(fig_dir, f"{base}_desc-{img}")
+            fname = opj(results_dir, f"{base}_desc-{img}")
             for ext in ['png','svg']:
                 utils.verbose(f"Writing {fname}.{ext}", verbose)
                 ff.savefig(

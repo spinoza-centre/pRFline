@@ -2,16 +2,21 @@ from linescanning import(
     plotting,
     utils,
     prf,
-    glm
+    glm,
+    fitting
 )
+from itertools import repeat
 from sklearn.metrics import r2_score
+import pRFline
 from pRFline.utils import (
     SubjectsDict,
-    read_subject_data,
-    sort_posthoc)
+    read_subject_data)
 from joblib import Parallel, delayed
 import os
 import matplotlib.pyplot as plt
+from matplotlib import (
+    patches, 
+    lines)
 import pandas as pd
 import numpy as np
 import imageio
@@ -19,6 +24,7 @@ import seaborn as sns
 import string
 
 opj = os.path.join
+opd = os.path.dirname
 
 class MainFigure():
 
@@ -40,6 +46,8 @@ class MainFigure():
         self.verbose = verbose
         self.cmap = cmap
         self.targ_match_colors = targ_match_colors
+        self.results_dir = opj(opd(opd(pRFline.__file__)), "results")
+        self.data_dir = opj(opd(opd(pRFline.__file__)), "data")
 
         # don't inherit to keep it more separate
         self.plot_defaults = plotting.Defaults()
@@ -84,7 +92,7 @@ class MainFigure():
 
         for ix,subject in enumerate(self.process_subjs):
             self.full_dict[subject] = dd[ix]
-
+        
     def fetch_parameters(self):
 
         utils.verbose("Creating full dataframe of pRF estimates..", self.verbose)
@@ -92,23 +100,23 @@ class MainFigure():
         self.df_params = []
         for sub in self.process_subjs:
 
-            avg_obj = self.get_epi_avg(subject=sub)
-            run_obj = self.get_epi_runs(subject=sub)
+            avg_obj = self.get_wb_avg(subject=sub)
+            run_obj = self.get_wb_runs(subject=sub)
             line_obj = self.get_line_avg(subject=sub)
             rib_obj = self.get_line_ribbon(subject=sub)
             full_obj = self.get_line_all(subject=sub)
 
             # parse into dataframe
-            epi_avg = getattr(avg_obj, f"{self.model}_iter")[self.subj_obj.get_target(sub),:]
-            epi_df = prf.Parameters.to_df(epi_avg, model=self.model)
-            epi_df["subject"],epi_df["run"],epi_df["acq"], epi_df["code"] = sub, "avg", "epi avg", 0
+            wb_avg = getattr(avg_obj, f"{self.model}_iter")[self.subj_obj.get_target(sub),:]
+            wb_df = prf.Parameters(wb_avg, model=self.model).to_df()
+            wb_df["subject"],wb_df["run"],wb_df["acq"], wb_df["code"] = sub, "avg", "wb avg", 0
 
-            self.df_params.append(epi_df)
+            self.df_params.append(wb_df)
 
-            # add HRF parameters if they don't exist; ensure same shapes across EPI/lines
+            # add HRF parameters if they don't exist; ensure same shapes across wb/lines
             for ii in ["hrf_deriv", "hrf_disp"]:
-                if ii not in list(epi_df.keys()):
-                    epi_df[ii] = np.nan
+                if ii not in list(wb_df.keys()):
+                    wb_df[ii] = np.nan
 
             for run in range(run_obj.data.shape[0]):
                 pars,_,_,_ = run_obj.plot_vox(
@@ -118,8 +126,8 @@ class MainFigure():
                     make_figure=False
                 )
 
-                pars_df = prf.Parameters.to_df(pars, model=self.model)
-                pars_df["subject"],pars_df["run"],pars_df["acq"],pars_df["code"] = sub, run+1,"epi runs",1
+                pars_df = prf.Parameters(pars, model=self.model).to_df()
+                pars_df["subject"],pars_df["run"],pars_df["acq"],pars_df["code"] = sub, run+1,"wb runs",1
 
                 self.df_params.append(pars_df)
 
@@ -130,7 +138,7 @@ class MainFigure():
                 make_figure=False
             )
 
-            line_df = prf.Parameters.to_df(avg_line, model=self.model)
+            line_df = prf.Parameters(avg_line, model=self.model).to_df()
             line_df["subject"],line_df["run"],line_df["acq"],line_df["code"] = sub, "avg", "line avg", 2
 
             self.df_params.append(line_df)
@@ -144,7 +152,7 @@ class MainFigure():
                     make_figure=False
                 )
 
-                pars_df = prf.Parameters.to_df(pars, model=self.model)
+                pars_df = prf.Parameters(pars, model=self.model).to_df()
                 pars_df["subject"],pars_df["run"],pars_df["acq"],pars_df["code"] = sub, f"depth-{depth+1}","ribbon",3
 
                 self.df_params.append(pars_df)
@@ -152,12 +160,17 @@ class MainFigure():
             # do full line
             pars = getattr(full_obj, f"{self.model}_iter").copy()
             vox_range = np.arange(pars.shape[0])
-            pars_df = prf.Parameters.to_df(pars, model=self.model)
+            pars_df = prf.Parameters(pars, model=self.model).to_df()
             pars_df["subject"],pars_df["run"],pars_df["acq"],pars_df["code"] = sub, [f"vox-{ii}" for ii in vox_range],"full",4
 
             self.df_params.append(pars_df)
 
         self.df_params = pd.concat(self.df_params).set_index(["subject","acq","code","run"])
+
+        df_fname = opj(self.data_dir, f"sub-all_model-{self.model}_desc-full_params.csv")
+        if not os.path.exists(df_fname):
+            utils.verbose(f"Writing '{df_fname}'")
+            self.df_params.to_csv(df_fname)
 
     def plot_r2(
         self, 
@@ -198,11 +211,12 @@ class MainFigure():
 
         # run posthoc?
         if posthoc:
-            self.posth = Posthoc(
+            self.posth = glm.Posthoc(
                 df=self.df_r2,
                 dv="r2",
                 between="acq",
-                axs=axs)
+                axs=axs,
+                annotate_ns=True)
 
             self.posth.plot_bars()
 
@@ -434,7 +448,7 @@ class MainFigure():
         if isinstance(subject, str):
             self.df_surf = utils.select_from_df(self.df_surf, expression=f"subject = {subject}")
         else:
-            self.df_surf = utils.select_from_df(self.df_surf, expression="subject = sub-009")
+            self.df_surf = utils.select_from_df(self.df_surf, expression="subject != sub-009")
 
         for ix,par in enumerate(include):
 
@@ -491,14 +505,14 @@ class MainFigure():
             sub_pars = utils.select_from_df(self.df_params, expression=f"subject = {sub}")
             run_pars = utils.select_from_df(sub_pars, expression=f"code = 1")
 
-            # get EPI average
-            avg_epi = utils.select_from_df(sub_pars, expression="code = 0").iloc[0,:].values
+            # get wb average
+            avg_wb = utils.select_from_df(sub_pars, expression="code = 0").iloc[0,:].values
 
             # loop through runs
             for run in range(run_pars.shape[0]):
 
                 pars = run_pars.iloc[run,:].values
-                run_norm = prf.normalize_prf(avg_epi,pars)
+                run_norm = prf.normalize_prf(avg_wb,pars)
 
                 center = (run_norm[0],run_norm[1])
                 circ = plt.Circle(
@@ -526,12 +540,12 @@ class MainFigure():
             # get subject-specific dataframe
             sub_pars = utils.select_from_df(self.df_params, expression=f"subject = {sub}")
             
-            # extract average EPI/line-scanning pRFs
-            avg_epi = utils.select_from_df(sub_pars, expression="code = 0").iloc[0,:].values
+            # extract average wb/line-scanning pRFs
+            avg_wb = utils.select_from_df(sub_pars, expression="code = 0").iloc[0,:].values
             avg_line = utils.select_from_df(sub_pars, expression="code = 2").iloc[0,:].values
 
             # normalize
-            line_norm = prf.normalize_prf(avg_epi,avg_line)
+            line_norm = prf.normalize_prf(avg_wb,avg_line)
             center = (line_norm[0],line_norm[1])
             circ3 = plt.Circle(
                 center,
@@ -596,16 +610,16 @@ class MainFigure():
 
                     axs[ix].add_artist(circ_run_subj)
 
-            # EPI pRF
-            avg_epi = utils.select_from_df(sub_pars, expression="code = 0").iloc[0,:].values
-            sub_epi = plt.Circle(
-                (avg_epi[0],avg_epi[1]),
-                avg_epi[2],
+            # wb pRF
+            avg_wb = utils.select_from_df(sub_pars, expression="code = 0").iloc[0,:].values
+            sub_wb = plt.Circle(
+                (avg_wb[0],avg_wb[1]),
+                avg_wb[2],
                 ec="k",
                 fill=False,
                 lw=2)
 
-            axs[ix].add_artist(sub_epi)    
+            axs[ix].add_artist(sub_wb)    
 
             # line pRF
             avg_line = utils.select_from_df(sub_pars, expression="code = 2").iloc[0,:].values
@@ -632,10 +646,10 @@ class MainFigure():
             )
 
 
-    def get_epi_runs(self, subject=None):
+    def get_wb_runs(self, subject=None):
         return self.full_dict[subject]['wb']['runs']
 
-    def get_epi_avg(self, subject=None):
+    def get_wb_avg(self, subject=None):
         return self.full_dict[subject]['wb']['avg']
 
     def get_line_avg(self, subject=None):
@@ -1013,17 +1027,17 @@ class WholeBrainToLine(MainFigure):
         for ii,par in zip(list(self.df_subj_r2.keys()),["block",0,r2_block]):
             self.df_subj_r2[ii].append(par)
 
-        # run GLM on EPI prediction
-        pred_epi_fitted = self.run_glm(
+        # run GLM on wb prediction
+        pred_wb_fitted = self.run_glm(
             avg_tc,
-            self.sb["epi_pred_glm"],
+            self.sb["wb_pred"],
             convolve_hrf=False
         )
 
         # get r2
-        r2_epi = r2_score(avg_tc,pred_epi_fitted)
-        # utils.verbose(f" r2 of GLM with on EPI prediction: {r2_epi}", self.verbose)
-        for ii,par in zip(list(self.df_subj_r2.keys()),["epi",1,r2_epi]):
+        r2_wb = r2_score(avg_tc,pred_wb_fitted)
+        # utils.verbose(f" r2 of GLM with on wb prediction: {r2_wb}", self.verbose)
+        for ii,par in zip(list(self.df_subj_r2.keys()),["wb",1,r2_wb]):
             self.df_subj_r2[ii].append(par)
 
         for ii,par in zip(list(self.df_subj_r2.keys()),["line",2,getattr(self.sb["line_obj"], f"{self.model}_iter")[0,-1]]):
@@ -1035,8 +1049,8 @@ class WholeBrainToLine(MainFigure):
         # put preditions in dataframe
         self.df_subj_pred = {}
         for ii,par in zip(
-            ["epi_pred_glm","line_pred","epi_block","epi_pred","tc_bold"],
-            [pred_epi_fitted,self.sb["line_pred"],pred_block,self.sb["epi_pred"],self.sb["tc_bold"]]):
+            ["wb_pred_glm","line_pred","wb_block","wb_pred","tc_bold"],
+            [pred_wb_fitted,self.sb["line_pred"],pred_block,self.sb["wb_pred"],self.sb["tc_bold"]]):
             self.df_subj_pred[ii] = np.squeeze(par)
 
         self.df_subj_pred = pd.DataFrame(self.df_subj_pred)
@@ -1046,7 +1060,7 @@ class WholeBrainToLine(MainFigure):
 
         # get predicted parameters
         self.df = []
-        for ix,ii in enumerate(["line_pars","epi_pars"]):
+        for ix,ii in enumerate(["line_pars","wb_pars"]):
             self.tmp = prf.Parameters(self.sb[ii], model=self.model).to_df()
             self.tmp["type"] = ii
             self.tmp["code"] = ix
@@ -1089,7 +1103,12 @@ class WholeBrainToLine(MainFigure):
         
         return np.squeeze(self.event@self.betas)
 
-    def plot_block_vs_epi(self, axs=None, exclude_line=True, posthoc=False, **kwargs):
+    def plot_block_vs_wb(
+        self, 
+        axs=None, 
+        exclude_line=True, 
+        posthoc=False, 
+        **kwargs):
 
         if axs == None:
             if exclude_line:
@@ -1118,22 +1137,23 @@ class WholeBrainToLine(MainFigure):
             add_points=True,
             points_cmap=self.sub_colors,
             points_hue="subject",    
-            y_label2="variance explained (r2)",
+            y_label2="cvR$^2$",
             lim=[0,1],
             ticks=list(np.arange(0,1.2,0.2)),
             fancy=True,
-            trim_bottom=True)
+            trim_bottom=True,
+            labels=["block","wb","line"])
 
         # run posthoc?
         if posthoc:
-            self.posth = Posthoc(
+            self.posth = glm.Posthoc(
                 df=df,
                 dv="r2",
                 between="acq",
                 axs=axs,
                 **kwargs)
 
-            self.posth.plot_bars()            
+            self.posth.plot_bars()
 
     def plot_predictions(
         self, 
@@ -1156,7 +1176,7 @@ class WholeBrainToLine(MainFigure):
                 ncols=3,
                 figsize=figsize,
                 gridspec_kw={
-                    "width_ratios": [0.5,1,ww]
+                    "width_ratios": [1,0.5,ww]
                 })
 
         if not hasattr(self, "color"):
@@ -1172,6 +1192,23 @@ class WholeBrainToLine(MainFigure):
         self.data_for_plot = utils.select_from_df(self.df_exp_pred, expression=f"subject = {subj}")
         self.pars_for_plot = utils.select_from_df(self.df_exp_pars, expression=f"subject = {subj}")
 
+        self.x_axis = np.array(list(np.arange(0,self.data_for_plot.shape[0])*self.TR))
+        plotting.LazyPlot(
+            [self.data_for_plot[qq].values for qq in ["tc_bold","line_pred","wb_pred_glm"]],
+            xx=self.x_axis,
+            add_hline="default",
+            color=self.color,
+            line_width=[1,3,3],
+            markers=['.',None,None],
+            x_label="time (s)",
+            y_label="amplitude (%)",
+            labels=['data','line','whole brain'],
+            axs=ax1,
+            x_lim=[0,int(self.x_axis[-1])],
+            x_ticks=list(np.arange(0,self.x_axis[-1]+40,40)),
+            y_lim=[-1,1.5],
+            y_ticks=[-1,-0.5,0,0.5,1,1.5])
+
         # make prfs
         plotting.LazyPRF(
             np.zeros((500,500)), 
@@ -1181,7 +1218,7 @@ class WholeBrainToLine(MainFigure):
             edge_color=None,
             shrink_factor=0.9,
             vf_only=True,
-            ax=ax1)
+            ax=ax2)
 
         for ii,col in zip([0,1],self.color[-2:]):
 
@@ -1193,45 +1230,31 @@ class WholeBrainToLine(MainFigure):
                 lw=2,
                 fill=False)
 
-            ax1.add_artist(circ)
+            ax2.add_artist(circ)
 
         for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.98,0.51),(0.51,0),(0.51,0.96)]):
-            ax1.annotate(
+            ax2.annotate(
                 ii,
                 val,
                 fontsize=self.plot_defaults.label_size,
                 xycoords="axes fraction"
-            )            
+            )
 
-        self.x_axis = np.array(list(np.arange(0,self.data_for_plot.shape[0])*self.TR))
-        plotting.LazyPlot(
-            [self.data_for_plot[qq].values for qq in ["tc_bold","line_pred","epi_pred_glm"]],
-            xx=self.x_axis,
-            add_hline="default",
-            color=self.color,
-            line_width=[1,3,3],
-            markers=['.',None,None],
-            x_label="time (s)",
-            y_label="amplitude",
-            labels=['data','line','epi'],
-            axs=ax2,
-            x_lim=[0,int(self.x_axis[-1])],
-            x_ticks=list(np.arange(0,self.x_axis[-1]+40,40)))
-
-        # bar plot with epi pRF vs design as block
-        self.plot_block_vs_epi(axs=ax3, **kwargs)
+        # bar plot with wb pRF vs design as block
+        self.plot_block_vs_wb(axs=ax3, **kwargs)
 
         # move the timecourse plot towards middle
         plt.tight_layout()
 
-        box = ax2.get_position()
-        box.x0 -= 0.03
-        box.x1 -= 0.03
-        ax2.set_position(box)
+        box = ax1.get_position()
+        box.x0 += 0.05
+        box.x1 += 0.05
+        ax1.set_position(box)
 
         # add annotations
         plotting.fig_annot(
             self.fig,
+            x0_corr=-1,
             x_corr=-0.8)
 
         # save figure?
@@ -1256,7 +1279,7 @@ class WholeBrainToLine(MainFigure):
 
         # initiate class
         output = {}
-        for ix,it in zip(["epi","line"],[0,2]):
+        for ix,it in zip(["wb","line"],[0,2]):
             # utils.verbose(f" Initializing '{ix}' pRF-object", self.verbose)
             tmp = prf.pRFmodelFitting(
                 func,
@@ -1285,95 +1308,586 @@ class WholeBrainToLine(MainFigure):
 
         return output
 
-class Posthoc(plotting.Defaults):
+class AnatomicalPrecision(MainFigure):
 
     def __init__(
         self,
-        df=None,
-        dv=None,
-        between=None,
-        parametric=True,
-        padjust="fdr_bh",
-        effsize="cohen",
+        reg_csv=None,
+        **kwargs):
+
+        self.reg_csv = reg_csv
+        self.__dict__.update(kwargs)
+        super().__init__(**kwargs)
+
+        if isinstance(self.reg_csv, str):
+            self.df_reg = pd.read_csv(self.reg_csv)
+    
+    def plot_individual_distributions(
+        self, 
         axs=None,
-        alpha=0.05):
+        add_title=True):
+        
+        if not isinstance(axs, (list,np.ndarray)):
+            _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
+        else:
+            if len(axs) != len(self.process_subjs):
+                raise ValueError(f"Number of axes ({len(axs)}) must match number of subjects ({len(self.process_subjs)})")
+                  
 
-        super().__init__()
+        self.fwhm_objs = []
+        for sub_ix,subject in enumerate(self.process_subjs):
+            ax = axs[sub_ix]
+            y_lbl = None
+            if sub_ix == 0:
+                y_lbl = "count"
 
-        self.df = df
-        self.dv = dv
-        self.between = between
-        self.parametric = parametric
-        self.padjust = padjust
-        self.effsize = effsize
-        self.axs = axs
-        self.alpha = alpha
+            y_data = utils.select_from_df(self.df_reg, expression=f"subject = {subject}")['euclidian'].values
+            self.reg_plot = plotting.LazyHist(
+                y_data,
+                axs=ax,
+                kde=True,
+                hist=True,
+                fill=False,
+                y_label2=y_lbl,
+                x_label2="distance (mm)",
+                color=self.sub_colors[sub_ix],
+                hist_kwargs={"alpha": 0.4},
+                kde_kwargs={"linewidth": 4},
+            )
 
-    def run_posthoc(self):
+            if add_title:
+                ax.set_title(
+                    subject, 
+                    fontsize=self.reg_plot.font_size, 
+                    color=self.sub_colors[sub_ix], 
+                    fontweight="bold")            
+            
+            # get kde line
+            self.fwhm_objs.append(fitting.FWHM(self.reg_plot.kde[0],self.reg_plot.kde[-1]))
+
+    def plot_spread_as_bar(self, axs=None):
+        
+        if axs == None:
+            _,axs = plt.subplots(figsize=(4,8))    
+
+        plotting.LazyBar(
+            data=self.df_reg,
+            x="subject",
+            y="euclidian",
+            cmap=self.cmap,
+            axs=axs,
+            sns_ori="v",
+            x_label2="subjects",
+            y_label2="registration variation (mm)",
+            fancy=True,
+            sns_offset=5,
+            add_points=True,
+            lim=[0,0.5],
+            points_alpha=0.5,
+            points_color="#cccccc",
+            trim_bottom=True
+        )
+
+    def plot_fwhm_as_bar(self, axs=None):
+        
+        if axs == None:
+            _,axs = plt.subplots(figsize=(1,8))
+
+        self.y_fwhm = [i.fwhm for i in self.fwhm_objs]
+        self.df_fwhm = pd.DataFrame(self.y_fwhm, columns=["fwhm"])
+        self.df_fwhm["subject"], self.df_fwhm["ix"] = self.process_subjs, 0
+
+        plotting.LazyBar(
+            data=self.df_fwhm,
+            x="ix",
+            y="fwhm",
+            sns_ori="v",
+            axs=axs,
+            sns_offset=4,
+            color="#cccccc",
+            add_points=True,
+            points_cmap=self.cmap,
+            points_hue="subject",    
+            y_label2="euclidian spread (mm)",
+            fancy=True,
+            lim=[0,0.1],
+            trim_bottom=True
+        )
+    
+    def plot_subject_beam(
+        self, 
+        subject=None, 
+        axs=None,
+        inset_axis=[0.6,-0.4,0.7,0.7]):
+        
+        if axs == None:
+            _,axs = plt.subplots(figsize=(8,8))
+
+        ses = self.subj_obj.get_session(subject)
+        inset_extent = self.subj_obj.get_extent(subject)
+        img_beam = opj(self.results_dir, subject, f"{subject}_ses-{ses}_desc-slice_on_surf.png")
+
+        if not os.path.exists(img_beam):
+            raise FileNotFoundError(f"Could not find file '{img_beam}'. Please create it with pRFline/scripts/slice_on_surf.py")
+
+        img_d = imageio.v2.imread(img_beam)
+        axs.imshow(img_d)
+        x1, x2, y1, y2 = inset_extent
+        axs.set_xlim(x1,x2)
+        axs.set_ylim(y2,y1)
+        axs.set_xticklabels([])
+        axs.set_yticklabels([])    
+        axs.axis('off')
+
+        # inset axis
+        ax2 = axs.inset_axes(inset_axis)
+        ax2.imshow(img_d)
+
+        # fix connecting lines
+        self.rect,self.lines = ax2.indicate_inset_zoom(axs, ec="#cccccc")
+
+        coords = self.rect.get_patch_transform().transform(self.rect.get_path().vertices[:-1])
+        self.lines[0].xy2 = coords[0]
+        self.lines[3].xy2 = coords[2]
+
+        for ii in self.lines:
+            ii.set_facecolor("#cccccc")
+            ii.set_linewidth(0.5)
+        
+        self.rect.set_edgecolor("#cccccc")
+
+        ax2.axis('off')
+
+    def plot_beam_on_surface(
+        self, 
+        axs=None,
+        add_title=True):
+
+        if not isinstance(axs, (list,np.ndarray)):
+            _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
+        else:
+            if len(axs) != len(self.process_subjs):
+                raise ValueError(f"Number of axes ({len(axs)}) must match number of subjects ({len(self.process_subjs)})")
+
+        for sub_ix,subject in enumerate(self.process_subjs):
+            ax = axs[sub_ix]
+
+            self.plot_subject_beam(
+                axs=ax,
+                subject=subject)
+
+            if add_title:
+                ax.set_title(
+                    subject, 
+                    fontsize=24, 
+                    color=self.sub_colors[sub_ix], 
+                    fontweight="bold")                
+
+    def plot_smoothed_target(
+        self, 
+        subject="sub-003", 
+        axs=None,
+        inset_axis=[1.2,-3,3,3],
+        inset_extent=[500,900,1300,1700]):
+        
+        if axs == None:
+            _,axs = plt.subplots(figsize=(2,2))
+
+        ses = self.subj_obj.get_session(subject)
+        img_beam = opj(self.results_dir, subject, f"{subject}_ses-{ses}_desc-target_on_surf.png")
+
+        if not os.path.exists(img_beam):
+            raise FileNotFoundError(f"Could not find file '{img_beam}'. Please create it with pRFline/scripts/slice_on_surf.py")
+
+        img_d = imageio.v2.imread(img_beam)
+        axs.imshow(img_d)
+        axs.set_xticklabels([])
+        axs.set_yticklabels([])    
+        axs.axis('off')
+
+        # inset axis
+        x1, x2, y1, y2 = inset_extent
+        ax2 = axs.inset_axes(inset_axis)
+        ax2.set_xlim(x1,x2)
+        ax2.set_ylim(y2,y1)
+        ax2.imshow(img_d)
+
+        # fix connecting lines
+        self.rect,self.lines = axs.indicate_inset_zoom(ax2, ec="#cccccc")
+
+        coords = self.rect.get_patch_transform().transform(self.rect.get_path().vertices[:-1])
+        self.lines[0].xy2 = coords[0]
+        self.lines[3].xy2 = coords[2]
+
+        for ii in self.lines:
+            ii.set_facecolor("#cccccc")
+            ii.set_linewidth(0.5)
+        
+        self.rect.set_edgecolor("#cccccc")
+
+        ax2.axis('off')
+
+    def plot_reg_overview(
+        self, 
+        axs=None,
+        fc=[0,-0.02,-0.1,-0.18,-0.26]):
+
+        if not isinstance(axs, (list,np.ndarray)):
+            fig,axs = plt.subplots(ncols=5, figsize=(24,5))
+        else:
+            if len(axs) != 5:
+                raise ValueError(f"Number of axes ({len(axs)}) must be 5")
+
+        self.reg_imgs = []
+        for ii,tt in enumerate(["high-res","low-res","partial FOV","slice","line"]):
+            
+            ax = axs[ii]
+            img = opj(self.results_dir, "figure_parts", f"anat_0{ii+1}.png")
+            img_d = imageio.v2.imread(img)
+
+            box = ax.get_position()
+            box.x0 += fc[ii]
+            box.x1 += fc[ii] 
+
+            ax.set_position(box)
+            ax.imshow(img_d)
+            ax.annotate(
+                tt, 
+                (0.5,0.85), 
+                ha="center",
+                fontsize=20, 
+                xycoords="axes fraction")
+
+            ax.axis('off')
+
+        xyA = [1150,800]
+        xyB = [250,800]
+        # ConnectionPatch handles the transform internally so no need to get fig.transFigure
+        arrow = patches.ConnectionPatch(
+            xyA,
+            xyB,
+            coordsA=axs[0].transData,
+            coordsB=axs[1].transData,
+            color="#cccccc",
+            arrowstyle="-| >",  # "normal" arrow
+            mutation_scale=25,  # controls arrow head size
+            linewidth=1,
+        )
 
         try:
-            import pingouin
+            fig.patches.append(arrow)
+            axs[1].annotate(
+                "ANTs", 
+                (-0.195,0.46),
+                color="#cccccc",
+                fontweight="bold",
+                fontsize=18, 
+                xycoords="axes fraction")
         except:
-            raise ImportError(f"Could not import 'pingouin'")
+            pass
 
-        # FDR-corrected post hocs with Cohen's D effect size
-        self.posthoc = pingouin.pairwise_tests(
-            data=self.df, 
-            dv=self.dv, 
-            between=self.between, 
-            parametric=self.between, 
-            padjust=self.padjust, 
-            effsize=self.effsize)
+    def compile_reg_figure(
+        self,
+        save_as=None,
+        fontsize=28,
+        **kwargs):
 
-    def plot_bars(self):
+        utils.verbose("Compiling figure. May take a few minutes..", True)
+
+        # initialize figure
+        self.fig = plt.figure(figsize=(24,13))
+        self.sf0 = self.fig.subfigures(
+            nrows=3, 
+            height_ratios=[0.7,0.6,0.5],
+            hspace=0.2)
+
+        # do this sketchy bit to get one tiny axis next to a big one
+        self.gsbig = self.sf0[0].add_gridspec(
+            ncols=6, 
+            width_ratios=[0.5,1,1,1,1,1], 
+            wspace=0.1)
+
+        self.axs = []
+        for ii in range(5):
+            self.axs.append(self.sf0[0].add_subplot(self.gsbig[1+ii]))
+
+        self.gssmall = self.sf0[0].add_gridspec(ncols=2, nrows=3, width_ratios=[0.1,0.75])
+        ax2 = self.sf0[0].add_subplot(self.gssmall[0])
+
+        self.sf0_ax1 = self.sf0[1].subplots(ncols=len(self.process_subjs), gridspec_kw={"wspace": 0.2})
+        self.sf0_ax2 = self.sf0[2].subplots(ncols=len(self.process_subjs), gridspec_kw={"wspace": 0.2})
+
+        plt.tight_layout()
+        self.plot_reg_overview(
+            axs=self.axs,
+            fc=[0.195,0.18,0.12,0.06,0])
+
+        # add the individual elements to their axes
+        self.plot_smoothed_target(axs=ax2, **kwargs)
+        self.plot_beam_on_surface(axs=self.sf0_ax1)
+        self.plot_individual_distributions(
+            axs=self.sf0_ax2, 
+            add_title=False)
+
+        # make the arrow
+        xyA = [1150,800]
+        xyB = [250,800]
+        arrow = patches.ConnectionPatch(
+            xyA,
+            xyB,
+            coordsA=self.axs[0].transData,
+            coordsB=self.axs[1].transData,
+            color="#cccccc",
+            arrowstyle="-| >",  # "normal" arrow
+            mutation_scale=25,  # controls arrow head size
+            linewidth=1,
+        )
+
+        self.fig.add_artist(arrow)
+        self.axs[1].annotate(
+            "ANTs", 
+            (-0.15,0.46),
+            color="#cccccc",
+            fontweight="bold",
+            fontsize=28, 
+            xycoords="axes fraction")
+
+        # make annotations
+        top_y = 1.02
+        for y_pos,let,ax in zip(
+            [top_y,0.6,0.31],
+            ["A","C","D"],
+            [ax2,self.sf0_ax1[0],self.sf0_ax2[0]]):
+
+            ax.annotate(
+                let, 
+                (0,y_pos), 
+                fontsize=fontsize, 
+                xycoords="figure fraction")
+
+        y = 0.98
+        for ax,ses,x in zip(
+            [self.axs[0],self.axs[2]],
+            ["ses-1","ses-2"], 
+            [0.4,0.75]):
+
+            ax.text(
+                *(x,y), 
+                ses,
+                size=26,
+                # bbox=dict(boxstyle="round",
+                #     ec=(1.,0.5,0.5),
+                #     fc=(1.,0.8,0.8)),
+                transform=ax.transAxes)
+
+        # draw lines below ses-X
+        for ix,ax in enumerate(self.axs):
+            if ix == 0:
+                xx = [0.2,0.8]
+            elif ix == 1:
+                xx = [0.2,1]
+            elif ix == len(self.axs)-1:
+                xx = [0,0.8]
+            else:
+                xx = [0,1]
+
+            line = lines.Line2D(
+                xx, 
+                [0.95,0.95], 
+                lw=1, 
+                color='k', 
+                transform=ax.transAxes)
+
+            ax.add_artist(line)
+
+        # panel B is slightly more annoying
+        bbox = self.axs[0].get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
+        x_pos = self.axs[0].get_position().x0 + (bbox.width*0.005)
+        self.axs[0].annotate(
+            "B", 
+            (x_pos,top_y), 
+            fontsize=fontsize, 
+            xycoords="figure fraction")        
+
+        # save figure
+        if isinstance(save_as, str):
+            for ext in ["png","svg"]:
+
+                fname = f"{save_as}.{ext}"
+                utils.verbose(f"Writing '{fname}'", self.verbose)
+
+                self.fig.savefig(
+                    fname,
+                    bbox_inches="tight",
+                    dpi=300,
+                    facecolor="white"
+                )
+
+
+class TimecoursePialWM(MainFigure, prf.pRFmodelFitting):
+
+    def __init__(
+        self,
+        subject="sub-003",
+        colors=["#FF0000","#0000FF"],
+        **kwargs):
         
-        if not hasattr(self, "posthoc"):
-            self.run_posthoc()
+        self.subject = subject
+        self.colors = colors
+        self.__dict__.update(kwargs)
+        MainFigure.__init__(self, **kwargs)
 
-        self.minmax = list(self.axs.get_ylim())
-        self.y_pos = 0.95
-        self.conditions = np.unique(self.df[self.between].values)
+        # get info we need
+        self.get_information()
 
-        # sort posthoc so that bars furthest away are on top (if significant)
-        self.posthoc_sorted = sort_posthoc(self.posthoc)
+    def get_information(self):
 
-        if "p-corr" in list(self.posthoc_sorted.columns):
-            p_meth = "p-corr"
+        # get session
+        ses = self.subj_obj.get_session(self.subject)
+
+        # get functional data
+        self.fn_func = opj(
+            self.deriv, 
+            "prf", 
+            self.subject,
+            f"ses-{ses}",
+            f"{self.subject}_ses-{ses}_task-pRF_run-avg_vox-all_desc-data.npy")
+
+        if not os.path.exists(self.fn_func):
+            raise FileNotFoundError(f"Could not find file '{self.fn_func}'")
         else:
-            p_meth = "p-unc"
+            self.func = np.load(self.fn_func).T
 
-        if not all((self.posthoc_sorted[p_meth]<self.alpha) == False):
-            for contr in range(self.posthoc_sorted.shape[0]):
-                if self.posthoc_sorted[p_meth].iloc[contr]<self.alpha:
-                    
-                    txt = "*"
-                    style = None
+        # get design matrix
+        self.fn_dm = opj(
+            os.path.dirname(self.fn_func),
+            f"{self.subject}_ses-{ses}_task-pRF_run-avg_desc-design_matrix.mat")
 
-                    # read indices from output dataframe and conditions
-                    A = self.posthoc_sorted["A"].iloc[contr]
-                    B = self.posthoc_sorted["B"].iloc[contr]
+        if not os.path.exists(self.fn_dm):
+            raise FileNotFoundError(f"Could not find design matrix '{self.fn_dm}'")
 
-                    x1 = np.where(self.conditions == A)[0][0]
-                    x2 = np.where(self.conditions == B)[0][0]
+        # initiate object
+        prf.pRFmodelFitting.__init__(
+            self,
+            self.func,
+            design_matrix=self.fn_dm,
+            TR=0.105,
+            verbose=self.verbose
+        )
 
-                    diff = self.minmax[1]-self.minmax[0]
-                    m = self.minmax[1]
-                    y, h, col =  (diff*self.y_pos)+self.minmax[0], diff*0.02, 'k'
-                    self.axs.plot(
-                        [x1,x1,x2,x2], 
-                        [y,y+h,y+h,y], 
-                        lw=self.tick_width, 
-                        c=col)
+        # load params
+        self.df_pars = utils.select_from_df(self.df_params, expression=(f"subject = {self.subject}", "&", "code = 4"))
+        self.pars_array = prf.Parameters(self.df_pars, model=self.model).to_array()
+        self.load_params(self.pars_array, model=self.model, stage="iter")
+        
+        # get the predictions
+        rib_range = self.subj_obj.get_ribbon(self.subject)
+        self.pial_pars,_,self.pial_tc,self.pial_pred = self.plot_vox(
+            vox_nr=rib_range[0],
+            model=self.model,
+            make_figure=False
+        )
 
-                    self.axs.text(
-                        (x1+x2)*.5, 
-                        y+h*0.5, 
-                        txt, 
-                        ha='center', 
-                        va='bottom', 
-                        color=col,
-                        fontsize=self.font_size,
-                        style=style)
+        self.wm_pars,_,self.wm_tc,self.wm_pred = self.plot_vox(
+            vox_nr=(rib_range[1]-1), # account for indexing
+            model=self.model,
+            make_figure=False
+        )
 
-                    # make subsequent bar lower than first
-                    self.y_pos -= 0.065
+        # create HRFs
+        self.pial_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[rib_range[0]],0])[0]
+        self.wm_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[rib_range[1]-1],0])[0]
+
+    def plot_pial_wm_timecourses(self, axs=None):
+
+        if axs == None:
+            _,axs = plt.subplots(figsize=(15,5))
+
+        self.x_axis = np.array(list(np.arange(0,self.func.shape[-1])*self.TR))
+        plotting.LazyPlot(
+            [self.pial_tc,self.pial_pred,self.wm_tc,self.wm_pred],
+            xx=self.x_axis,
+            line_width=[0.5,2,0.5,2],
+            color=[x for item in self.colors for x in repeat(item, 2)],
+            axs=axs,
+            x_label="time (s)",
+            y_label="response",
+            labels=[
+                "pial (bold)",
+                "pial (pred)",
+                "wm (bold)",
+                "wm (pred)"],
+            x_lim=[0,int(self.x_axis[-1])],
+            x_ticks=list(np.arange(0,self.x_axis[-1]+40,40))              
+        )
+
+    def plot_pial_wm_prfs(self, axs=None, vf_extent=[-5,5]):
+
+        if axs == None:
+            _,axs = plt.subplots(figsize=(8,8))
+
+        # make prfs
+        plotting.LazyPRF(
+            np.zeros((500,500)), 
+            cmap=utils.make_binary_cm(self.colors[-1]),
+            vf_extent=vf_extent,
+            cross_color="k",
+            edge_color=None,
+            shrink_factor=0.9,
+            vf_only=True,
+            ax=axs)
+
+        for ix,pr in enumerate([self.pial_pars,self.wm_pars]):
+            circ = plt.Circle(
+                (pr[0],pr[1]),
+                pr[2],
+                ec=self.colors[ix],
+                lw=2,
+                fill=False)
+
+            axs.add_artist(circ)
+        
+        ext_list = vf_extent+vf_extent
+        for ii,val in zip(ext_list, [(0,0.51),(0.98,0.51),(0.51,0),(0.51,0.96)]):
+            axs.annotate(
+                ii,
+                val,
+                fontsize=self.plot_defaults.label_size,
+                xycoords="axes fraction"
+            )
+
+    def plot_wmpial_hrf(
+        self,
+        axs=None):
+        
+        if axs == None:
+            _,axs = plt.subplots(figsize=(8,8))
+
+        self.hrf_ax = np.linspace(0,40,num=self.pial_hrf.shape[0])
+        plotting.LazyPlot(
+            [self.pial_hrf,self.wm_hrf],
+            xx=self.hrf_ax,
+            axs=axs,
+            color=self.colors,
+            x_label="time (s)",
+            y_label="response",
+            labels=["pial","wm"],
+            x_lim=[0,25],
+            x_ticks=[0,5,10,15,20,25]
+        )
+        
+    def compile_wmpial_figure(
+        self,
+        figsize=(24,5)):
+
+        self.fig,(ax1,ax2) = plt.subplots(
+            ncols=2,
+            figsize=figsize,
+            gridspec_kw={
+                "width_ratios": [1,0.3]
+            })
+
+        self.plot_pial_wm_timecourses(axs=ax1)
+        self.plot_pial_wm_prfs(axs=ax2)
+
+

@@ -80,7 +80,7 @@ ses_trafo=${DIR_DATA_DERIV}/pycortex/sub-${subID}/transforms/sub-${subID}_from-s
 job="qsub -N line_${subID} -pe smp 5 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs"
 
 # please run with --qa first to potentially exclude runs based on the heuristics in the report
-python line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --qa
+python line_fit.py -s sub-007 -i 2 --lp --qa --verbose
 ```
 Then, check the subject's html-file to check for heavy motion (e.g., coughing). Exclude those runs using:
 

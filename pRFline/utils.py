@@ -24,6 +24,7 @@ class SubjectsDict():
                     "altitude": 105,
                     "radius": 163
                 },
+                "extent": [800,2400,1800,2800]
             },
             "sub-002": {
                 "ribbon": (358,366),
@@ -38,6 +39,7 @@ class SubjectsDict():
                     "altitude": 105,
                     "radius": 163
                 },
+                "extent": [800,2400,2600,3600]
             },
             "sub-003": {
                 "ribbon": (358,366),
@@ -52,6 +54,7 @@ class SubjectsDict():
                     "altitude": 105,
                     "radius": 163
                 },
+                "extent": [800,2400,2600,3600]
             },
             "sub-005": {
                 "ribbon": (360,366),
@@ -66,13 +69,14 @@ class SubjectsDict():
                     "altitude": 105,
                     "radius": 163
                 },
+                "extent": [800,2400,2600,3600]
             },
             "sub-007": {
                 "ribbon": (361,366),
-                "exclude": [1],
+                "exclude": [1,3], #[1],
                 "target": 4578,
                 "screen_size": 39.3,
-                "line_ses": 2,
+                "line_ses": 3, #2
                 "invert": False,
                 "bounds": True,
                 "views": {
@@ -80,6 +84,7 @@ class SubjectsDict():
                     "altitude": 105,
                     "radius": 163
                 },
+                "extent": [800,2400,2600,3600]
             },
             "sub-008": {
                 "ribbon": (359,364),
@@ -94,6 +99,7 @@ class SubjectsDict():
                     "altitude": 105,
                     "radius": 163
                 },
+                "extent": [800,2400,2600,3600]
             },
             # "sub-009": {
             #     "ribbon": (358,367),
@@ -131,24 +137,10 @@ class SubjectsDict():
         return self.dict_data[subject]["invert"]
 
     def get_bounds(self, subject):
-        return self.dict_data[subject]["bounds"]        
+        return self.dict_data[subject]["bounds"]
 
-def sort_posthoc(df):
-
-    conditions = np.unique(np.array(list(df["A"].values)+list(df["B"].values)))
-
-    distances = []
-    for contr in range(df.shape[0]): 
-        A = df["A"].iloc[contr]
-        B = df["B"].iloc[contr]
-
-        x1 = np.where(conditions == A)[0][0]
-        x2 = np.where(conditions == B)[0][0]
-
-        distances.append(abs(x2-x1))
-    
-    df["distances"] = distances
-    return df.sort_values("distances", ascending=False)
+    def get_extent(self, subject):
+        return self.dict_data[subject]["extent"]        
 
 def read_subject_data(
     subject,

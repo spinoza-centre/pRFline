@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+#$ -q long.q
+#$ -cwd
+#$ -j Y
+#$ -o ../logs
+#$ -V
+#$ -N predict_from_epi
 
 import os
 import sys
@@ -60,17 +66,16 @@ Example
     utils.verbose("\npredict_from_epi.py\n", verbose)
 
     # set defaults
-    fig_dir = opj(opd(opd(pRFline.__file__)), "results")
+    fig_dir = opj(opd(opd(pRFline.__file__)), "figures")
+    data_dir = opj(opd(opd(pRFline.__file__)), "data")
 
     # check if we have full parameter file; saves time
-    params_fn = opj(fig_dir, f"sub-all_model-{model}_desc-full_params.csv")
+    params_fn = opj(data_dir, f"sub-all_model-{model}_desc-full_params.csv")
     if not os.path.exists(params_fn):
         params_fn = None
 
     # check if we have h5 file for figure; saves time
-    h5_file = opj(fig_dir, f"sub-all_model-{model}_desc-figure0.h5")
-    if not os.path.exists(h5_file):
-        h5_file = None        
+    h5_file = opj(data_dir, f"sub-all_model-{model}_desc-figure0.h5")
     
     # initialize class
     im3 = figures.WholeBrainToLine(
@@ -84,7 +89,7 @@ Example
         subject=subject, 
         exclude_line=False, 
         posthoc=True,
-        save_as=opj(os.path.dirname(params_fn), f"sub-all_model-{model}_desc-figure0"),
+        save_as=opj(fig_dir, f"sub-all_model-{model}_fig-4_desc-predict_from_epi"),
         ast_frac=0.05)
 
 if __name__ == "__main__":

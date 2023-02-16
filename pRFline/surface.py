@@ -162,11 +162,11 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
         # fill target vertex & best-matching vertex
         if self.annotate:
 
-            self.target_matched = np.full_like(self.dist_array, 0)
+            self.target_matched = np.zeros_like(self.dist_array)
             self.target_matched[self.closest_to_minimum_distance] = -self.annotate_value
             self.target_matched[self.target_vert] = self.annotate_value
             
-            alpha_targ = np.full_like(self.use_distance_data, 0)
+            alpha_targ = np.zeros_like(self.dist_array)
             alpha_targ[self.target_matched != 0] = 1
             self.target_matched_v = pycortex.Vertex2D_fix(
                 self.target_matched,
@@ -212,7 +212,7 @@ class DistSurf(SubjectsDict, optimal.Neighbours):
             self.target_matched_sm[self.closest_to_minimum_distance_sm] = -self.annotate_value
             self.target_matched_sm[self.target_vert] = self.annotate_value
 
-            alpha_targ = np.full_like(self.use_distance_data, 0)
+            alpha_targ = np.zeros_like(self.dist_array)
             alpha_targ[self.target_matched_sm != 0] = 1            
             self.target_matched_v_sm = pycortex.Vertex2D_fix(
                 self.target_matched_sm,

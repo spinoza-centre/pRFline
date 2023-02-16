@@ -136,7 +136,6 @@ class FitpRFs(dataset.Dataset):
                     func = func_files
 
                 comps = utils.split_bids_components(func)
-
                 if self.is_lines:
                     acq = "line"
                 else:
@@ -147,6 +146,9 @@ class FitpRFs(dataset.Dataset):
                 raise ValueError(f"Could not read BIDS-components from {func}. Please format accordingly or specify 'output_base'")
         else:
             self.output_base = output_base
+
+        # get bids components
+        self.bids_comps = utils.split_bids_components(self.output_base)
         
         # create output directory
         if not os.path.exists(self.output_dir):
@@ -256,11 +258,12 @@ class FitpRFs(dataset.Dataset):
         if not os.path.exists(self.pars_file) or self.overwrite:
             utils.verbose(f"Running fit with {self.model}-model ({txt})", self.verbose)
 
-            # inject existing gaussian pars
-            self.gauss_file = opj(self.output_dir, self.stage1.output_base+f"_model-gauss_stage-{self.stage}_desc-prf_params.pkl")
-            if os.path.exists(self.gauss_file):
-                utils.verbose(f"Gaussian estimates: '{self.gauss_file}'", self.verbose)
-                self.stage1.old_params = self.gauss_file
+            # inject existing gaussian pars if model != Gauss
+            if self.model != "gauss":
+                self.gauss_file = opj(self.output_dir, self.stage1.output_base+f"_model-gauss_stage-{self.stage}_desc-prf_params.pkl")
+                if os.path.exists(self.gauss_file):
+                    utils.verbose(f"Gaussian estimates: '{self.gauss_file}'", self.verbose)
+                    self.stage1.old_params = self.gauss_file
 
             # fit
             self.stage1.fit()
@@ -296,7 +299,7 @@ class FitpRFs(dataset.Dataset):
                 output_base=self.output_base+"_vox-ribbon",
                 write_files=True,
                 rsq_threshold=self.rsq_threshold,
-                fix_bold_baseline=True,
+                fix_bold_baseline=False,
                 fix_parameters=self.fix_parameters,
                 old_params=insert_params,
                 save_grid=self.save_grid,
@@ -326,71 +329,6 @@ class FitpRFs(dataset.Dataset):
                     self.pars_file2, 
                     model=self.model, 
                     stage=self.stage)
-
-            self.hrf_input = self.stage2
-
-        else:
-            # set stage 1 as stage 2 if start_avg=False
-            self.hrf_input = self.stage1
-
-        # # stage3 - fit HRF after initial iterative fit
-        # if self.fit_hrf:
-        #     counter += 1
-        #     if self.verbose:
-        #         print("\n---------------------------------------------------------------------------------------------------")
-        #         print(f"STAGE {counter} [HRF]- Running fit with {self.model}-model")
-
-        #     # check first if we can insert the entire fitter (in case of fitting HRF directly after the other)
-        #     # then check if we have old parameters when running stage1 and stage2 separately
-        #     if hasattr(self.hrf_input, f"{self.model}_fitter"):
-        #         utils.verbose(f"Use '{self.model}_fitter' from {self.hrf_input} [fitter]", self.verbose)
-
-        #         prev_fitter = getattr(self.hrf_input, f"{self.model}_fitter")
-        #         old_pars = None
-        #     elif hasattr(self.hrf_input, f"{self.model}_{self.stage}"):
-        #         utils.verbose(f"Use '{self.model}_{self.stage}' from {self.hrf_input} [parameters]", self.verbose)
-
-        #         old_pars = getattr(self.hrf_input, f"{self.model}_{self.stage}")
-        #         prev_fitter = None
-        #     else:
-        #         raise ValueError(f"Could not derive '{self.model}_fitter' or '{self.model}_{self.stage}' from {self.hrf_input}")
-
-        #     # initiate fitter object with previous fitter
-        #     self.stageHRF = prf.pRFmodelFitting(
-        #         self.hrf_input.data, 
-        #         design_matrix=self.design, 
-        #         TR=self.stage1.TR, 
-        #         model=self.model, 
-        #         stage=self.stage, 
-        #         verbose=self.verbose,
-        #         fit_hrf=True,
-        #         output_dir=self.output_dir,
-        #         output_base=self.hrf_input.output_base+"_hrf-true",
-        #         write_files=True,                                
-        #         previous_gaussian_fitter=prev_fitter,
-        #         fix_bold_baseline=True,
-        #         rsq_threshold=self.rsq_threshold,
-        #         fix_parameters=self.fix_parameters,
-        #         save_grid=self.save_grid,
-        #         old_params=old_pars)
-
-        #     # check if params-file already exists
-            
-        #     self.hrf_file = opj(self.output_dir, self.stageHRF.output_base+f"_model-{self.model}_stage-{self.stage}_desc-prf_params.pkl")
-        #     # run fit if file doesn't exist, otherwise load them in case we want to fit the prf
-        #     if not os.path.exists(self.hrf_file) or self.overwrite:
-        #         utils.verbose(f"Running fit with {self.model}-model (HRF=True)", self.verbose)
-
-        #         # fit
-        #         self.stageHRF.fit()
-        #     else:
-        #         utils.verbose(f"Parameter file '{self.hrf_file}'", self.verbose)
-                
-        #         # load
-        #         self.stageHRF.load_params(
-        #             self.hrf_file, 
-        #             model=self.model, 
-        #             stage=self.stage)
 
     def prepare_design(self, **kwargs):
         
@@ -436,10 +374,37 @@ class FitpRFs(dataset.Dataset):
             print("\n---------------------------------------------------------------------------------------------------")
             print(f"Preprocessing functional data")                    
         
+        self.h5_bids = ""
+        self.subject = ""
+        for ii in ["sub","ses","task"]:
+            if len(self.bids_comps.keys()) > 0:
+                if ii in list(self.bids_comps.keys()):
+                    if ii == "sub":
+                        self.subject = f"{ii}-{self.bids_comps[ii]}"
+
+                    self.h5_bids += f"{ii}-{self.bids_comps[ii]}_"
+        
+        if len(self.h5_bids) == 0:
+            self.h5_bids = f"{self.output_base}_desc-preproc_bold.h5"
+        else:
+            self.h5_bids += "desc-preproc_bold.h5"
+
+        self.h5_file = opj(os.environ.get('DIR_DATA_DERIV'), "lsprep", self.subject, self.h5_bids)
+        if os.path.exists(self.h5_file):
+            self.func_input = self.h5_file
+            self.write_h5 = False
+        else:
+            self.write_h5 = True
+            self.func_input = self.func_files
+
         super().__init__(
-            self.func_files, 
+            self.func_input, 
             verbose=self.verbose, 
             **kwargs)
+
+        # save h5 if needed
+        if self.write_h5:
+            self.to_hdf(output_file=self.h5_file)
 
         # fetch data and filter out NaNs
         self.data = self.fetch_fmri()
@@ -512,323 +477,3 @@ class FitpRFs(dataset.Dataset):
             self.avg_iters_no_baseline = self.avg_iters_baseline[...,self.baseline.shape[0]:]
 
         utils.verbose(f" With baseline: {self.avg_iters_baseline.shape} | No baseline: {self.avg_iters_no_baseline.shape}", self.verbose)
-
-
-class pRFResults():
-
-    def __init__(
-        self, 
-        prf_params, 
-        verbose=False, 
-        TR=0.105, 
-        targ2line=False,
-        **kwargs):
-
-        self.prf_params     = prf_params
-        self.verbose        = verbose
-        self.TR             = TR
-        self.targ2line      = targ2line
-        self.__dict__.update(kwargs)
-
-        utils.verbose(f"Loading in files:", self.verbose)
-        utils.verbose(f" pRF params:    {self.prf_params}", self.verbose)
-
-        # the params file should have a particular naming that allows us to read specs:
-        self.file_components = utils.split_bids_components(self.prf_params)
-        self.model = self.file_components['model']
-        self.stage = self.file_components['stage']
-
-        # start off with defaults
-        self.run = None
-        self.acq = None
-        search_design = ['desc-design_matrix']
-        search_data = ['desc-data']
-
-        # check if we can derive average/ribbon fit
-        try:
-            self.data_type = self.file_components['vox']
-            exclude_vox = None
-            self.desc = f"_vox-{self.data_type}"
-        except:
-            self.data_type = None
-            exclude_vox = "vox-"
-            self.desc = ""
-
-        if isinstance(self.data_type, str):
-            search_data += [f"vox-{self.data_type}"]
-
-        # update by checking file components
-        for el in ['run', 'acq']:
-            try:
-                setattr(self, el, self.file_components[el])
-                search_design = search_design + [f"{el}-{self.file_components[el]}"]
-                search_data = search_data + [f"{el}-{self.file_components[el]}"]
-            except:
-                pass 
-            
-        # get design matrix  data
-        self.fn_design = utils.get_file_from_substring(search_design, os.path.dirname(self.prf_params))
-        self.fn_data = utils.get_file_from_substring(search_data, os.path.dirname(self.prf_params), exclude=exclude_vox)
-
-        for desc, obj, crit in zip(
-            ['designs', 'funcs'],
-            [self.fn_design, self.fn_data], 
-            [search_design, search_data]):
-            if isinstance(obj, list):
-                if len(obj) == 0:
-                    raise ValueError(f"Found 0 instances with {crit} in {os.path.dirname(self.prf_params)}")
-                elif len(obj) > 1:
-                    raise ValueError(f"Found multiple instances of {desc}: {obj}")
-
-        utils.verbose(f" Design matrix: {self.fn_design}", self.verbose)
-        utils.verbose(f" fMRI data:     {self.fn_data}", self.verbose)
-
-        # check if design is a numpy-file or mat-file
-        self.design = prf.read_par_file(self.fn_design)
-        
-        # load data
-        self.data = np.load(self.fn_data)
-
-        # initiate the fitting class
-        self.model_fit = prf.pRFmodelFitting(
-            self.data.T,
-            design_matrix=self.design,
-            model=self.model,
-            TR=self.TR)
-
-        # load the parameters
-        self.model_fit.load_params(
-            self.prf_params, 
-            model=self.model, 
-            stage=self.stage)
-
-    def plot_prf_timecourse(
-        self, 
-        vox_nr=None, 
-        vox_range=None, 
-        save=False, 
-        save_dir=None, 
-        ext="png", 
-        overlap=True, 
-        **kwargs):
-
-        # target pRF
-        self.target_obj = prf.CollectSubject(
-            subject=f"sub-{self.file_components['sub']}",
-            derivatives=os.environ.get('DIR_DATA_DERIV'),
-            model=self.model,
-            best_vertex=True)
-
-        if save:
-            if save_dir == None:
-                save_dir = os.path.dirname(self.prf_params)
-
-            fname = opj(save_dir, f"plot_model-{self.model}_vox-target_desc-timecourse.{ext}")
-        else:
-            fname = None
-
-        self.target = self.target_obj.target_prediction_prf(
-            save_as=fname, 
-            resize_pix=270, 
-            axis_type="time",
-            **kwargs)
-
-        # insert target pRF in line-scanning session
-        if self.targ2line:
-
-            # initiate model with line-scanning design
-            self.target_in_ses2 = prf.pRFmodelFitting(
-                self.target['tc'],
-                design_matrix=self.design,
-                TR=self.TR
-            )
-
-            # load ses-1 parameters
-            self.target_in_ses2.load_params(
-                self.target['pars'],
-                model=self.model,
-                stage=self.stage
-            )
-
-            # get the target pRFs prediction to line-scanning design
-            _,_,_,targ_in_line_tc = self.target_in_ses2.plot_vox(
-                model=self.model, 
-                stage=self.stage, 
-                make_figure=False,
-                axis_type="time")
-
-            print(type(targ_in_line_tc))
-            # create add_tc dictionary for plot_vox
-            add_tc = {
-                "tc": targ_in_line_tc,
-                "label": "target"}
-        else:
-            add_tc = None
-
-        if vox_range == None:
-            vox_range = [vox_nr,vox_nr+1]
-
-        self.voxel_data = {}
-        for vox_id in range(*vox_range):
-
-            if "avg" not in self.desc:
-                desc = f"_vox-{vox_id}"
-                add_tc = None
-            else:
-                desc = self.desc
-                
-            if save:
-                if save_dir == None:
-                    save_dir = os.path.dirname(self.prf_params)
-                
-                fname = opj(save_dir, f"plot_model-{self.model}{desc}_desc-timecourse.{ext}")
-            else:
-                fname = None
-
-            self.voxel_data[vox_id] = self.model_fit.plot_vox(
-                vox_nr=vox_id, 
-                model=self.model,
-                transpose=False, 
-                axis_type="time",
-                save_as=fname,
-                resize_pix=270,
-                title='pars',
-                add_tc=add_tc,
-                **kwargs)
-
-        # plot overlap with target vertex
-        if overlap:
-
-            fig = plt.figure(figsize=(len(self.voxel_data)*6,6))
-            gs = fig.add_gridspec(1,len(self.voxel_data))
-
-            for ix, vox in enumerate(self.voxel_data):
-                pars = self.voxel_data[vox][0]
-                prf_line = self.voxel_data[vox][1]
-
-                # get target pRF from ses-1
-                prf_target = self.target['prf'].copy()
-
-                # create different colormaps
-                colors = ["#DE3163", "#6495ED"]
-                cmap1 = utils.make_binary_cm(colors[0])
-                cmap2 = utils.make_binary_cm(colors[1])
-                cmaps = [cmap1, cmap2]
-                
-                # get distance of pRF-centers
-                dist = prf.distance_centers(self.target['pars'], pars)
-
-                # initiate and plot figure
-                axs = fig.add_subplot(gs[ix])
-                for ix, obj in enumerate([prf_target,prf_line]):
-                    plotting.LazyPRF(
-                        obj, 
-                        vf_extent=self.target_obj.settings['vf_extent'], 
-                        ax=axs, 
-                        cmap=cmaps[ix], 
-                        cross_color='k', 
-                        alpha=0.5, 
-                        title=f"Distance = {round(dist, 2)} dva",
-                        font_size=30,
-                        shrink_factor=0.9,
-                        **kwargs)
-
-            # create custom legend
-            legend_elements = [
-                Line2D([0],[0], marker='o', color='w', label='target pRF', mfc=colors[0], markersize=24, alpha=0.3),
-                Line2D([0],[0], marker='o', color='w', label='line pRF', mfc=colors[1], markersize=24, alpha=0.3)]
-
-            L = fig.legend(handles=legend_elements, frameon=False, fontsize=26, loc='lower right')
-            plt.setp(L.texts, family='Arial')
-            plt.tight_layout()
-
-            if save:
-                # save img
-                if save_dir == None:
-                    save_dir = os.path.dirname(self.prf_params)
-                
-                img = opj(save_dir, f'plot_model-{self.model}{self.desc}_desc-overlap.{ext}')
-                print(f"Writing {img}")
-                fig.savefig(img, bbox_inches='tight')
-            else:
-                plt.show()
-                return self.voxel_data
-
-        else:
-            if not save:
-                return self.voxel_data
-
-    def plot_depth(
-        self, 
-        vox_range=[359,365], 
-        measures='all', 
-        cmap='viridis', 
-        ci_color="#cccccc", 
-        save=False, 
-        save_dir=None, 
-        ext="png", 
-        **kwargs):
-        
-        pars = prf.SizeResponse.parameters_to_df(prf.read_par_file(self.prf_params), model=self.model)
-        if isinstance(measures, str):
-            if measures == "all":
-                measures = list(pars.columns)
-            else:
-                measures = [measures]
-
-        # filter for range
-        incl_voxels = list(np.arange(vox_range[0],vox_range[1]))
-        range_pars = pars.iloc[incl_voxels,:]
-        colors = sns.color_palette(cmap, range_pars.shape[0])
-
-        fig = plt.figure(figsize=(len(measures)*8,8))
-        gs = fig.add_gridspec(1,len(measures))
-
-        for ix, par in enumerate(measures):
-
-            if par == "prf_size":
-                x_label = "pRF size (dva)"
-            elif par == "A":
-                x_label = "activation amplitude (A)"
-            elif par == "B":
-                x_label = "activation constant (B)"
-            elif par == "C":
-                x_label = "normalization amplitude (C)"
-            elif par == "D":
-                x_label = "normalization constant (D)"
-            elif par == "r2":
-                x_label = "variance (r2)"
-            else:
-                x_label = par
-            
-
-            axs = fig.add_subplot(gs[ix])
-            vals = range_pars[par].values
-            cf = CurveFitter(vals, order=2, verbose=False)
-
-            for idx, ii in enumerate(vals):
-                axs.plot(cf.x[idx], ii, 'o', color=colors[idx])
-
-            plotting.LazyPlot(
-                cf.y_pred_upsampled,
-                axs=axs,
-                xx=cf.x_pred_upsampled,
-                error=cf.ci_upsampled,
-                color=ci_color,
-                x_label="depth",
-                y_label=x_label,
-                **kwargs
-            )
-
-        plt.tight_layout()
-
-        if save:
-            # save img
-            if save_dir == None:
-                save_dir = os.path.dirname(self.prf_params)
-            
-            img = opj(save_dir, f'plot_model-{self.model}_desc-depth.{ext}')
-            print(f"Writing {img}")
-            fig.savefig(img, bbox_inches='tight')
-        else:
-            plt.show()            

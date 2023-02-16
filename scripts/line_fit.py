@@ -301,20 +301,21 @@ def main(argv):
       ribbon_v = None
     
     # excluded runs
-    if isinstance(exclude, list):
-        print(f"Excluding run(s): {exclude}")
-        make_report = False
-        for list_type,ll in zip(["funcs","anats","trafos"], [func_files,ref_slices,run_trafos]):
-            if isinstance(ll, list):
-                for run in exclude:
-                    for ff in ll:
-                        if list_type == "trafos":
-                            target = f"run{run}.txt"
-                        else:
-                            target = f"run-{run}" 
+    if not qa:
+        if isinstance(exclude, list):
+            print(f"Excluding run(s): {exclude}")
+            make_report = False
+            for list_type,ll in zip(["funcs","anats","trafos"], [func_files,ref_slices,run_trafos]):
+                if isinstance(ll, list):
+                    for run in exclude:
+                        for ff in ll:
+                            if list_type == "trafos":
+                                target = f"run{run}.txt"
+                            else:
+                                target = f"run-{run}" 
 
-                        if target in ff:
-                            ll.remove(ff)
+                            if target in ff:
+                                ll.remove(ff)
 
     # print list of inputs
     print(*func_files, sep="\n")
@@ -376,10 +377,10 @@ def main(argv):
     if run_id != None:
         output_base_prf = os.path.basename(output_dir)+f"_run-{run_id}"
     else:
-        if len(func_files) > 1:
-            output_base_prf = os.path.basename(output_dir)+f"_run-avg"
-        else:
-            output_base_prf = os.path.basename(output_dir)
+        output_base_prf = os.path.basename(output_dir)+f"_run-avg"
+        # if len(func_files) > 1:
+        # else:
+        #     output_base_prf = os.path.basename(output_dir)
 
     #---------------------------------------------------------------------------------------
     # initiate model fitting
@@ -397,7 +398,7 @@ def main(argv):
         strip_baseline=strip_baseline,
         acompcor=do_acompcor,
         ref_slice=ref_slices,
-        filter_pca=filter_pca,
+        filter_confs=filter_pca,
         rsq_threshold=rsq_thresh,
         ses1_2_ls=ses_trafo,
         run_2_run=run_trafos,

@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+#$ -q long.q
+#$ -cwd
+#$ -j Y
+#$ -o ../logs
+#$ -V
+#$ -N main_figure
 
 import os
 import sys
@@ -56,23 +62,33 @@ Example
         elif opt in ("--css"):
             model = "css"         
 
-    utils.verbose("\nmain_figure.py", verbose)
+    utils.verbose("\nmain_figure.py\n", verbose)
 
     # set defaults
-    fig_dir = opj(opd(opd(pRFline.__file__)), "results")
+    results_dir = opj(opd(opd(pRFline.__file__)), "results")
+    data_dir = opj(opd(opd(pRFline.__file__)), "data")
+    fig_dir = opj(opd(opd(pRFline.__file__)), "figures")
+
+    if not os.path.exists(fig_dir):
+        os.makedirs(fig_dir, exist_ok=True)
 
     # fetch subject dictionary from pRFline.utils.SubjectsDict
     cmap_subj = "Set2"
 
+    # fetch subject dictionary from pRFline.utils.SubjectsDict
+    subj_obj = SubjectsDict()
+    ses = subj_obj.get_session(subject)
+
     # define a bunch of files for panel D
+    base = f"{subject}_ses-{ses}"
     img_dist = opj(
-        fig_dir, 
+        results_dir, 
         subject, 
-        f"{subject}_model-{model}_smooth-true_kernel-1_iter-1_desc-distance.png")
+        f"{base}_model-{model}_smooth-true_kernel-1_iter-1_desc-distance.png")
 
     # and panel EFG
     csv_file = opj(
-        fig_dir, 
+        data_dir, 
         f"sub-all_model-{model}_smooth-true_kernel-1_iter-1_desc-dist_on_surf.csv")
 
     # check if the files exist
@@ -81,7 +97,7 @@ Example
             raise FileNotFoundError(f"Could not find '{ii}'. Please create it with ./dist_on_surf.py")
 
     # check if we have full parameter file; saves time
-    params_fn = opj(fig_dir,f"sub-all_model-{model}_desc-full_params.csv")
+    params_fn = opj(data_dir, f"sub-all_model-{model}_desc-full_params.csv")
     if not os.path.exists(params_fn):
         params_fn = None
     
@@ -98,7 +114,7 @@ Example
     im.compile_figure(
         img_dist=img_dist,
         csv_file=csv_file,
-        save_as=opj(os.path.dirname(params_fn),f"sub-all_model-{model}_desc-figure1"),
+        save_as=opj(fig_dir, f"sub-all_model-{model}_fig-5_desc-functional_precision"),
         coord_targ=(1594,3172),
         coord_closest=(1594,3205),
         include=["euclidian","geodesic"],
