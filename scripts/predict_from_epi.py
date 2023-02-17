@@ -75,7 +75,7 @@ Example
         params_fn = None
 
     # check if we have h5 file for figure; saves time
-    h5_file = opj(data_dir, f"sub-all_model-{model}_desc-figure0.h5")
+    h5_file = opj(data_dir, f"sub-all_model-{model}_desc-predict_from_epi.h5")
     
     # initialize class
     im3 = figures.WholeBrainToLine(
