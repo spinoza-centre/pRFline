@@ -1756,7 +1756,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         MainFigure.__init__(self, **kwargs)
 
         # get info we need
-        self.get_information()
+        self.get_information(code=self.code)
 
         if isinstance(self.hrf_csv, str) and os.path.exists(self.hrf_csv):
             utils.verbose(f"Reading '{self.hrf_csv}'", self.verbose)
@@ -1910,7 +1910,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                 ax2 = axs[ix].inset_axes(inset_axis)
                 if insets == "mag":
                     ori = "v"
-                    y_lab = "magnitude"
+                    y_lab = "magnitude (%)"
                     x_lab = "depth"
                 elif insets == "ttp":
                     ori = "h"
@@ -1918,7 +1918,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                     x_lab = "time-to-peak (s)"
                 elif insets == "fwhm":
                     ori = "v"
-                    y_lab = "FWHM"
+                    y_lab = "FWHM (s)"
                     x_lab = "depth"
                 else:
                     raise ValueError(f"insets must be one of 'mag','ttp', or 'fwhm'; not '{insets}'")
@@ -1945,20 +1945,31 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                     subject, 
                     fontsize=24, 
                     color=self.sub_colors[ix], 
-                    fontweight="bold")
+                    fontweight="bold",
+                    y=1.02)
 
-    def get_information(self):
+    def get_information(self, code=4):
 
         # get session
         ses = self.subj_obj.get_session(self.subject)
+        rib_range = self.subj_obj.get_ribbon(self.subject)
 
         # get functional data
+        if code == 4:
+            func_type = "vox-all"
+            use_ranges = [rib_range[0],rib_range[1]-1]
+        elif code == 3:
+            func_type = "vox-ribbon"
+            use_ranges = [0,-1]
+        else:
+            raise ValueError(f"Code must be 3 ('ribbon') or 4 ('full line'), not {code}")
+
         self.fn_func = opj(
             self.deriv, 
             "prf", 
             self.subject,
             f"ses-{ses}",
-            f"{self.subject}_ses-{ses}_task-pRF_run-avg_vox-all_desc-data.npy")
+            f"{self.subject}_ses-{ses}_task-pRF_run-avg_{func_type}_desc-data.npy")
 
         if not os.path.exists(self.fn_func):
             raise FileNotFoundError(f"Could not find file '{self.fn_func}'")
@@ -1983,27 +1994,26 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         )
 
         # load params
-        self.df_pars = utils.select_from_df(self.df_params, expression=(f"subject = {self.subject}", "&", "code = 4"))
+        self.df_pars = utils.select_from_df(self.df_params, expression=(f"subject = {self.subject}", "&", f"code = {code}"))
         self.pars_array = prf.Parameters(self.df_pars, model=self.model).to_array()
         self.load_params(self.pars_array, model=self.model, stage="iter")
-        
+
         # get the predictions
-        rib_range = self.subj_obj.get_ribbon(self.subject)
         self.pial_pars,_,self.pial_tc,self.pial_pred = self.plot_vox(
-            vox_nr=rib_range[0],
+            vox_nr=use_ranges[0],
             model=self.model,
             make_figure=False
         )
 
         self.wm_pars,_,self.wm_tc,self.wm_pred = self.plot_vox(
-            vox_nr=(rib_range[1]-1), # account for indexing
+            vox_nr=use_ranges[1], # account for indexing
             model=self.model,
             make_figure=False
         )
 
         # create HRFs
-        self.pial_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[rib_range[0]],0])[0]
-        self.wm_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[rib_range[1]-1],0])[0]
+        self.pial_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[use_ranges[0]],0])[0]
+        self.wm_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[use_ranges[1]],0])[0]
 
     def plot_pial_wm_timecourses(self, axs=None):
 
@@ -2239,7 +2249,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                     fontsize=24, 
                     color=self.sub_colors[ix], 
                     fontweight="bold",
-                    y=1.02)
+                    y=1.05)
 
         for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.96,0.51),(0.51,0),(0.51,0.96)]):
             axs[0].annotate(
@@ -2259,7 +2269,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         self.fig = plt.figure(figsize=figsize, constrained_layout="tight")
         self.subfigs = self.fig.subfigures(
             nrows=3,
-            height_ratios=[0.4,0.35,0.25])
+            height_ratios=[0.4,0.3,0.375])
 
         self.row1 = self.subfigs[0].subplots(
             ncols=2, 
@@ -2267,24 +2277,29 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                 "width_ratios": [0.8,0.2], 
                 "wspace": 0})
 
-        self.row2 = self.subfigs[1].subplots(ncols=len(self.process_subjs))
-        self.row3 = self.subfigs[2].subplots(ncols=len(self.process_subjs))
+        self.row2 = self.subfigs[1].subplots(
+            ncols=len(self.process_subjs),
+            gridspec_kw={"wspace": 0})
+
+        self.row3 = self.subfigs[2].subplots(
+            ncols=len(self.process_subjs),
+            gridspec_kw={"wspace": 0})
 
         # row 1 - pial/wm timecourses + their pRFs
         self.plot_pial_wm_timecourses(axs=self.row1[0])
         self.plot_pial_wm_prfs(axs=self.row1[1])
 
-        # row 2 - response profiles
-        self.plot_hrf_profiles(insets=insets, axs=self.row2, add_title=True)
+        # row 2 - positional stability
+        self.plot_positional_stability(axs=self.row2, add_title=True)
 
-        # row 3 - positional stability
-        self.plot_positional_stability(axs=self.row3, add_title=False)
+        # row 3 - response profiles
+        self.plot_hrf_profiles(insets=insets, axs=self.row3, add_title=False)
         
         # make annotations
         top_y = 0.97
-        x_pos = 0.032
+        x_pos = 0.025
         for y_pos,let,ax in zip(
-            [top_y,0.58,0.23],
+            [top_y,0.61,0.32],
             ["A","C","D"],
             [self.row1[0],self.row2[0],self.row3[0]]):
 
