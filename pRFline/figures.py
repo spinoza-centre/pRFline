@@ -63,11 +63,21 @@ class MainFigure():
             self.deriv = os.environ.get("DIR_DATA_DERIV")
 
         # fetch data if it's not a dictionary
+        fetch_data = True
         if isinstance(self.full_dict, str):
-            utils.verbose(f"Reading '{self.full_dict}'", self.verbose)
-            if self.full_dict.endswith("csv"):
-                self.df_params = pd.read_csv(self.full_dict).set_index(["subject","acq","code","run"])
-        elif not isinstance(self.full_dict, dict):
+            if os.path.exists(self.full_dict):
+                utils.verbose(f"Reading '{self.full_dict}'", self.verbose)
+                if self.full_dict.endswith("csv"):
+                    fetch_data = False
+                    self.df_params = pd.read_csv(self.full_dict).set_index(["subject","acq","code","run"])
+                else:
+                    raise TypeError(f"Not sure what to do with this file.. Please specify a 'csv'-file, not {self.full_dict}")
+        elif isinstance(self.full_dict, pd.DataFrame):
+            fetch_data = False
+            self.df_params = self.full_dict.copy()
+
+        # check if the flag was switched to True
+        if fetch_data:
             self.fetch_data()
             self.fetch_parameters()
 
@@ -169,7 +179,7 @@ class MainFigure():
 
         df_fname = opj(self.data_dir, f"sub-all_model-{self.model}_desc-full_params.csv")
         if not os.path.exists(df_fname):
-            utils.verbose(f"Writing '{df_fname}'")
+            utils.verbose(f"Writing '{df_fname}'", self.verbose)
             self.df_params.to_csv(df_fname)
 
     def plot_r2(
@@ -1724,21 +1734,218 @@ class AnatomicalPrecision(MainFigure):
                 )
 
 
-class TimecoursePialWM(MainFigure, prf.pRFmodelFitting):
+class DepthHRF(MainFigure, prf.pRFmodelFitting):
 
     def __init__(
         self,
         subject="sub-003",
         colors=["#FF0000","#0000FF"],
+        hrf_csv=None,
+        metric_csv=None,
+        hrf_length=30,
+        code=3,
         **kwargs):
         
         self.subject = subject
         self.colors = colors
+        self.hrf_csv = hrf_csv
+        self.metric_csv = metric_csv
+        self.hrf_length = hrf_length
+        self.code = code
         self.__dict__.update(kwargs)
         MainFigure.__init__(self, **kwargs)
 
         # get info we need
         self.get_information()
+
+        if isinstance(self.hrf_csv, str) and os.path.exists(self.hrf_csv):
+            utils.verbose(f"Reading '{self.hrf_csv}'", self.verbose)
+            self.hrf_df = pd.read_csv(self.hrf_csv).set_index(["subject","t","depth"])
+        else:
+            self.fetch_hrfs_across_depth(hrf_length=self.hrf_length, code=self.code)
+
+            if not isinstance(self.hrf_csv, str):
+                self.hrf_csv = opj(self.data_dir, f"sub-all_model-{self.model}_desc-hrf_across_depth.csv")
+
+            utils.verbose(f"Writing '{self.hrf_csv}'", self.verbose)
+            self.hrf_df.to_csv(self.hrf_csv)
+
+        # fetch the metrics
+        if isinstance(self.metric_csv, str) and os.path.exists(self.metric_csv):
+            utils.verbose(f"Reading '{self.metric_csv}'", self.verbose)
+            self.df_hrf_metrics = pd.read_csv(self.metric_csv).set_index(["subject","level","depth"])
+        else:
+            self.metric_csv = opj(self.data_dir, f"sub-all_model-{self.model}_desc-hrf_metrics.csv")
+
+            # fetch metrics from self.hrf_df
+            self.fetch_all_hrf_metrics()
+
+            utils.verbose(f"Writing '{self.metric_csv}'", self.verbose)
+            self.df_hrf_metrics.to_csv(self.metric_csv)
+        
+    def fetch_single_hrf_metrics(self, subject=None):
+        
+        # initalize output
+        df_mag = {}
+        for ii in ["subject","level","depth","mag","fwhm","ttp"]:
+            df_mag[ii] = []
+
+        # get subject specific hrfs
+        sub_hrf = utils.select_from_df(self.hrf_df, expression=f"subject = {subject}")
+
+        # parse them into list depending on the number of voxels in estimates
+        depths = np.unique(sub_hrf.reset_index()["depth"].values)
+        depths_pc = np.arange(0,depths.shape[0])/(depths.shape[0]-1)*100            
+
+        hrf_list = []
+        for ii in depths:
+            df_depth = utils.select_from_df(sub_hrf, expression=f"depth = {ii}")
+            dd = df_depth['hrf'].values
+            
+            if not np.isnan(dd.sum()) or not np.all(dd==0):
+                hrf_list.append(dd)                
+
+                df_mag["subject"].append(subject)
+                df_mag["depth"].append(depths_pc[ii])
+                df_mag["level"].append(ii)
+
+        # create time axis
+        time_axis = list(np.arange(0,hrf_list[0].shape[0])*self.TR)
+
+        # add time-to-peak across the ribbon as inset-axis
+        tcs = np.array(hrf_list)
+        peak_positions = (np.argmax(tcs, axis=1)/tcs.shape[-1])*df_depth.reset_index().t.iloc[-1]
+
+        # FWHM
+        y_fwhm = np.zeros((len(hrf_list)))
+        for hrf_ix,hrf in enumerate(hrf_list):
+            fwhm = fitting.FWHM(time_axis, hrf).fwhm
+            y_fwhm[hrf_ix] = fwhm
+
+        # get magnitudes
+        mag = np.array([np.amax(i) for i in hrf_list])
+
+        for par,var in zip(["mag","fwhm","ttp"],[mag,y_fwhm,peak_positions]):
+            for v in var:
+                df_mag[par].append(v)
+
+        return pd.DataFrame(df_mag)
+
+    def fetch_all_hrf_metrics(self):
+
+        self.df_hrf_metrics = []
+        utils.verbose(f"Extracting HRF metrics from profiles..", self.verbose)
+        n_jobs = len(self.process_subjs)
+        hrf_ = Parallel(n_jobs=n_jobs,verbose=False)(
+            delayed(self.fetch_single_hrf_metrics)(subject)
+            for subject in self.process_subjs
+        )
+
+        self.df_hrf_metrics = pd.concat(hrf_).set_index(["subject","level","depth"])
+
+    def plot_hrf_profiles(
+        self, 
+        axs=None, 
+        insets="mag",
+        inset_axis=[0.75, 0.65, 0.3, 0.3],
+        add_title=True):
+
+        if not isinstance(axs, (list,np.ndarray)):
+            _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
+        else:
+            if len(axs) != len(self.process_subjs):
+                raise ValueError(f"Number of axes ({len(axs)}) must match number of subjects ({len(self.process_subjs)})")
+
+        self.df_mag = {}
+        for ii in ["subject","level","depth","mag","fwhm","ttp"]:
+            self.df_mag[ii] = []
+
+        for ix,subject in enumerate(self.process_subjs):
+
+            # get subject-specific HRFs from HRF-dataframe  
+            sub_hrf = utils.select_from_df(self.hrf_df, expression=f"subject = {subject}")
+            sub_met = utils.select_from_df(self.df_hrf_metrics, expression=f"subject = {subject}")
+
+            # parse them into list depending on the number of voxels in estimates
+            depths = np.unique(sub_hrf.reset_index()["depth"].values)
+
+            hrf_list = []
+            for ii in depths:
+                dd = utils.select_from_df(sub_hrf, expression=f"depth = {ii}")['hrf'].values
+                
+                if not np.isnan(dd.sum()) or not np.all(dd==0):
+                    hrf_list.append(dd)
+
+            # get subject specific color palette
+            colors = sns.color_palette(f"light:{self.sub_colors.as_hex()[ix]}", len(hrf_list))
+            y_ticks = None
+            if ix == 0:
+                y_lbl = "magnitude"
+            else:
+                y_lbl = None
+
+            # create time axis
+            time_axis = list(np.arange(0,hrf_list[0].shape[0])*self.TR)
+
+            # plot
+            y_max = np.amax(np.array(hrf_list))
+            y_ticks = [0,round(y_max/2,2),round(y_max,2)]
+            plotting.LazyPlot(
+                hrf_list,
+                axs=axs[ix],
+                xx=time_axis,
+                x_label="time (s)",
+                y_label=y_lbl,
+                cmap=colors,
+                # x_lim=[0,25],
+                # x_ticks=np.arange(0,30,5),
+                y_ticks=y_ticks,
+                add_hline=0,
+                trim_left=False
+            )
+
+            # decide plot properties depending on which type to put on the inset axis
+            if isinstance(insets, str):
+
+                ax2 = axs[ix].inset_axes(inset_axis)
+                if insets == "mag":
+                    ori = "v"
+                    y_lab = "magnitude"
+                    x_lab = "depth"
+                elif insets == "ttp":
+                    ori = "h"
+                    y_lab = "depth"
+                    x_lab = "time-to-peak (s)"
+                elif insets == "fwhm":
+                    ori = "v"
+                    y_lab = "FWHM"
+                    x_lab = "depth"
+                else:
+                    raise ValueError(f"insets must be one of 'mag','ttp', or 'fwhm'; not '{insets}'")
+
+                plotting.LazyBar(
+                    data=sub_met.reset_index(),
+                    x="level",
+                    y=insets,
+                    axs=ax2,
+                    label_size=9,
+                    font_size=12,
+                    palette=colors,
+                    sns_ori=ori,
+                    add_labels=True,
+                    y_label2=y_lab,
+                    x_label2=x_lab,
+                    alpha=0.8,
+                    fancy=True,
+                    sns_offset=3,
+                    trim_bottom=True)               
+
+            if add_title:
+                axs[ix].set_title(
+                    subject, 
+                    fontsize=24, 
+                    color=self.sub_colors[ix], 
+                    fontweight="bold")
 
     def get_information(self):
 
@@ -1818,7 +2025,9 @@ class TimecoursePialWM(MainFigure, prf.pRFmodelFitting):
                 "wm (bold)",
                 "wm (pred)"],
             x_lim=[0,int(self.x_axis[-1])],
-            x_ticks=list(np.arange(0,self.x_axis[-1]+40,40))              
+            x_ticks=list(np.arange(0,self.x_axis[-1]+40,40)),
+            label_size=16,
+            add_hline=0
         )
 
     def plot_pial_wm_prfs(self, axs=None, vf_extent=[-5,5]):
@@ -1848,14 +2057,14 @@ class TimecoursePialWM(MainFigure, prf.pRFmodelFitting):
             axs.add_artist(circ)
         
         ext_list = vf_extent+vf_extent
-        for ii,val in zip(ext_list, [(0,0.51),(0.98,0.51),(0.51,0),(0.51,0.96)]):
+        for ii,val in zip(ext_list, [(0,0.51),(0.96,0.51),(0.51,0),(0.51,0.96)]):
             axs.annotate(
-                ii,
+                f"{ii}°",
                 val,
                 fontsize=self.plot_defaults.label_size,
                 xycoords="axes fraction"
             )
-
+            
     def plot_wmpial_hrf(
         self,
         axs=None):
@@ -1875,19 +2084,234 @@ class TimecoursePialWM(MainFigure, prf.pRFmodelFitting):
             x_lim=[0,25],
             x_ticks=[0,5,10,15,20,25]
         )
+
+    def fetch_subject_hrf(
+        self, 
+        subject=None, 
+        code=3,
+        hrf_length=30):
         
-    def compile_wmpial_figure(
+        # get session
+        ses = self.subj_obj.get_session(subject)
+
+        # get subject specific dataframe
+        df_subj_pars = utils.select_from_df(self.df_params, expression=(f"subject = {subject}", "&", f"code = {code}"))
+
+        # parse into array
+        arr_subj_pars = prf.Parameters(df_subj_pars, model=self.model).to_array()
+
+        # get voxel range if we have full line estimates
+        if code == 4:
+            vox_range = np.arange(*self.subj_obj.get_ribbon(subject))
+            arr_subj_pars = arr_subj_pars[vox_range,:]
+
+        # loop through range
+        dm = opj(
+            self.deriv,
+            "prf",
+            subject,
+            f"ses-{ses}",
+            f"{subject}_ses-{ses}_task-pRF_run-avg_desc-design_matrix.mat"
+            )
+
+        if not os.path.exists(dm):
+            raise FileNotFoundError(f"Could not find design matrix '{dm}'")
+
+        # make object
+        tmp = prf.pRFmodelFitting(
+            None,
+            design_matrix=dm,
+            TR=self.TR,
+            verbose=False,
+            screen_distance_cm=196
+            )
+
+        # load parameters
+        tmp.load_params(
+            arr_subj_pars,
+            model=self.model,
+            stage="iter")
+
+        # get HRF length in TR space    
+        hrf_length_tr = int(hrf_length/self.TR)
+        
+        # loop through voxel range
+        sub_hrfs = []
+        for ii in range(arr_subj_pars.shape[0]):
+
+            # get the HRF prediction
+            _,_,_,hrf = tmp.plot_vox(
+                vox_nr=ii,
+                model=self.model,
+                make_figure=False)
+            
+            hrf = hrf[:hrf_length_tr,...]
+            
+            # create time axis
+            xx = list(np.arange(0,hrf.shape[0])*self.TR)
+
+            # create dataframe
+            df_hrf = pd.DataFrame(hrf, columns=["hrf"])
+            df_hrf["subject"],df_hrf["t"],df_hrf["depth"] = subject,xx,ii
+
+            sub_hrfs.append(pd.DataFrame(df_hrf))
+            
+        # return subject-specific HRFs
+        return pd.concat(sub_hrfs)
+
+    def fetch_hrfs_across_depth(
         self,
-        figsize=(24,5)):
+        hrf_length=30,
+        code=3):
+        
+        utils.verbose(f"Fetching HRFs across depth..", self.verbose)
+        n_jobs = len(self.process_subjs)
+        hrf_ = Parallel(n_jobs=n_jobs,verbose=False)(
+            delayed(self.fetch_subject_hrf)(
+                subject,
+                hrf_length=hrf_length,
+                code=code
+            )
+            for subject in self.process_subjs
+        )
 
-        self.fig,(ax1,ax2) = plt.subplots(
-            ncols=2,
-            figsize=figsize,
+        self.hrf_df = pd.concat(hrf_).set_index(["subject","t","depth"])
+
+    def plot_positional_stability(self, axs=None, code=3, add_title=True):
+
+        if not isinstance(axs, (list,np.ndarray)):
+            _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
+        else:
+            if len(axs) != len(self.process_subjs):
+                raise ValueError(f"Number of axes ({len(axs)}) must match number of subjects ({len(self.process_subjs)})")
+
+        avg_pars = utils.select_from_df(self.df_params, expression="code = 2")
+        for ix,subject in enumerate(self.process_subjs):
+
+            # get subject specific dataframe
+            df_subj_pars = utils.select_from_df(self.df_params, expression=(f"subject = {subject}", "&", f"code = {code}"))
+
+            # get voxel range if we have full line estimates
+            if code == 4:
+                vox_range = np.arange(*self.subj_obj.get_ribbon(subject))
+                df_subj_pars = df_subj_pars.iloc[vox_range,:]
+
+            # make colors
+            colors = sns.color_palette(f"light:{self.sub_colors.as_hex()[ix]}", df_subj_pars.shape[0])
+
+            for vox in range(df_subj_pars.shape[0]):
+
+                cm = utils.make_binary_cm(colors[vox])
+                plotting.LazyPRF(
+                    np.zeros((500,500)),
+                    [-5,5],
+                    ax=axs[ix],
+                    cmap=cm,
+                    cross_color="k",
+                    edge_color=None,
+                    alpha=0.3
+                )
+
+                x,y,si = df_subj_pars["x"][vox],df_subj_pars["y"][vox],df_subj_pars["prf_size"][vox]
+                d_line = plt.Circle(
+                    (x,y),
+                    si,
+                    ec=self.sub_colors[ix],
+                    fill=False,
+                    alpha=0.4,
+                    lw=2)
+
+                axs[ix].add_artist(d_line)
+
+            x,y,si = avg_pars["x"][ix],avg_pars["y"][ix],avg_pars["prf_size"][ix]
+            sub_line = plt.Circle(
+                (x,y),
+                si,
+                ec="k", #sub_colors[ix],
+                fill=False,
+                lw=2)
+
+            axs[ix].add_artist(sub_line)
+
+            if add_title:
+                axs[ix].set_title(
+                    subject, 
+                    fontsize=24, 
+                    color=self.sub_colors[ix], 
+                    fontweight="bold",
+                    y=1.02)
+
+        for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.96,0.51),(0.51,0),(0.51,0.96)]):
+            axs[0].annotate(
+                ii,
+                val,
+                fontsize=self.plot_defaults.label_size,
+                xycoords="axes fraction"
+            )                    
+
+    def compile_depth_figure(
+        self,
+        figsize=(24,15),
+        insets="fwhm",
+        save_as=None):
+
+        # initiate full figure
+        self.fig = plt.figure(figsize=figsize, constrained_layout="tight")
+        self.subfigs = self.fig.subfigures(
+            nrows=3,
+            height_ratios=[0.4,0.35,0.25])
+
+        self.row1 = self.subfigs[0].subplots(
+            ncols=2, 
             gridspec_kw={
-                "width_ratios": [1,0.3]
-            })
+                "width_ratios": [0.8,0.2], 
+                "wspace": 0})
 
-        self.plot_pial_wm_timecourses(axs=ax1)
-        self.plot_pial_wm_prfs(axs=ax2)
+        self.row2 = self.subfigs[1].subplots(ncols=len(self.process_subjs))
+        self.row3 = self.subfigs[2].subplots(ncols=len(self.process_subjs))
 
+        # row 1 - pial/wm timecourses + their pRFs
+        self.plot_pial_wm_timecourses(axs=self.row1[0])
+        self.plot_pial_wm_prfs(axs=self.row1[1])
 
+        # row 2 - response profiles
+        self.plot_hrf_profiles(insets=insets, axs=self.row2, add_title=True)
+
+        # row 3 - positional stability
+        self.plot_positional_stability(axs=self.row3, add_title=False)
+        
+        # make annotations
+        top_y = 0.97
+        x_pos = 0.032
+        for y_pos,let,ax in zip(
+            [top_y,0.58,0.23],
+            ["A","C","D"],
+            [self.row1[0],self.row2[0],self.row3[0]]):
+
+            ax.annotate(
+                let, 
+                (x_pos,y_pos), 
+                fontsize=28, 
+                xycoords="figure fraction")
+
+        # panel B is slightly more annoying
+        bbox = self.row1[1].get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
+        x_pos = self.row1[1].get_position().x0 + (bbox.width*0.015)
+        self.row1[1].annotate(
+            "B", 
+            (x_pos,top_y), 
+            fontsize=28, 
+            xycoords="figure fraction")
+
+        if isinstance(save_as, str):
+            for ext in ["png","svg"]:
+
+                fname = f"{save_as}.{ext}"
+                utils.verbose(f"Writing '{fname}'", self.verbose)
+
+                self.fig.savefig(
+                    fname,
+                    bbox_inches="tight",
+                    dpi=300,
+                    facecolor="white"
+                )
