@@ -299,7 +299,7 @@ class FitpRFs(dataset.Dataset):
                 output_base=self.output_base+"_vox-ribbon",
                 write_files=True,
                 rsq_threshold=self.rsq_threshold,
-                fix_bold_baseline=False,
+                fix_bold_baseline=True,
                 fix_parameters=self.fix_parameters,
                 old_params=insert_params,
                 save_grid=self.save_grid,
