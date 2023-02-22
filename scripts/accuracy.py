@@ -139,7 +139,7 @@ Example
 
                     # register orig.nii.gz to low-res anatomy from ses-2
                     if not os.path.exists(out_mat):
-                        cmd = f"call_antsregistration {ref} {mov} {tmp} rigid"
+                        cmd = f"call_antsregistration {ref} {mov} {tmp}"
                         os.system(cmd)
                     
                     # apply new matrix to original LPS point
