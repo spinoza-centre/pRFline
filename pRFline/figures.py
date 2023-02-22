@@ -1,28 +1,30 @@
+import imageio
+from itertools import repeat
+from joblib import Parallel, delayed
 from linescanning import(
     plotting,
     utils,
     prf,
     glm,
-    fitting
+    fitting,
+    transform
 )
-from itertools import repeat
-from sklearn.metrics import r2_score
 import pRFline
 from pRFline.utils import (
     SubjectsDict,
     read_subject_data)
-from joblib import Parallel, delayed
-import os
 import matplotlib.pyplot as plt
 from matplotlib import (
     patches, 
     lines)
-import pandas as pd
+import math
 import numpy as np
-import imageio
-import seaborn as sns
-import string
+import os
+import pandas as pd
 from scipy.spatial.transform import Rotation as R
+import seaborn as sns
+from sklearn.metrics import r2_score
+import string
 
 opj = os.path.join
 opd = os.path.dirname
@@ -1323,7 +1325,385 @@ class WholeBrainToLine(MainFigure):
 
         return output
 
-class AnatomicalPrecision(MainFigure):
+class MotionEstimates(MainFigure):
+
+    def __init__(
+        self,
+        moco_csv=None,
+        **kwargs):
+        
+        self.moco_csv = moco_csv
+        self.__dict__.update(kwargs)
+        super().__init__(**kwargs)
+
+        if isinstance(self.moco_csv, str) and os.path.exists(self.moco_csv):
+            utils.verbose(f"Reading '{self.moco_csv}'", self.verbose)
+            self.df_moco = pd.read_csv(self.moco_csv).set_index(["subject","run"])
+        else:
+            self.get_transformations()
+
+            if not isinstance(self.moco_csv, str):
+                self.moco_csv = opj(self.data_dir, f"sub-all_model-{self.model}_desc-slice_motion.csv")
+
+            utils.verbose(f"Writing '{self.moco_csv}'", self.verbose)
+            self.df_moco.to_csv(self.moco_csv)        
+
+    def pivot_df(self):
+        
+        self.df_moco_piv = []
+
+        for subject in self.process_subjs:
+            
+            sub_df = utils.select_from_df(self.df_moco, expression=f"subject = {subject}")
+
+            new_df = {}
+            for par in ["code","par"]:
+                new_df[par] = []
+
+            dfs = []
+            for ix,pp in enumerate(list(sub_df.columns)):
+                new_df = {}
+                new_df["val"] = sub_df[pp].values
+                new_df["code"] = ix
+                new_df["par"] = pp
+
+                dfs.append(pd.DataFrame(new_df))
+
+            dfs = pd.concat(dfs)
+            dfs["subject"] = subject
+            
+            self.df_moco_piv.append(dfs)
+        
+        self.df_moco_piv = pd.concat(self.df_moco_piv)
+
+    def get_transformations(self):
+        
+        self.df_moco = []
+        for subject in self.process_subjs:
+            
+            ses = self.subj_obj.get_session(subject)
+
+            # i know some text files in the directories might have 'command' in them; exclude those
+            subj_dir = opj(self.base_dir, subject, f"ses-{ses}", "anat")
+            trafos = utils.FindFiles(subj_dir, extension="txt", exclude="command").files
+
+            if isinstance(trafos, list):
+                if len(trafos) == 0:
+                    raise ValueError(f"Found 0 transformation files in '{subj_dir}'")
+
+            # get ses-2 target coordinate
+            file_ses2 = opj(
+                self.deriv, 
+                "freesurfer",
+                subject,
+                "mri",
+                f"{subject}_space-ses{ses}_hemi-L_vert-{self.subj_obj.get_target(subject)}_desc-lps.csv")
+
+            if not os.path.exists(file_ses2):
+                raise FileNotFoundError(f"Could not find file '{file_ses}' containing the target coordinate in ses-2 space")
+            else:
+                target_ses2 = np.array(utils.read_chicken_csv(file_ses2))
+
+            subj_trafo = []
+            reg_acc = []
+            for ff in trafos:
+                
+                tmp_file = opj(os.path.dirname(ff), "tmp.mat")
+                cmd = f"ConvertTransformFile 3 {ff} {tmp_file} --convertToAffineType"
+                
+                try:
+                    os.system(cmd)
+                except:
+                    raise Exception("Could not run convertToTransformFile")
+
+                # -----------------------------------------------------------------------------------
+                # apply new matrix to original LPS point
+                out_csv = opj(os.path.dirname(ff), "tmp.csv")
+                new_coord = np.array(
+                    utils.read_chicken_csv(
+                        transform.ants_applytopoints(
+                            file_ses2, 
+                            out_csv, 
+                            tmp_file,
+                            invert=0)
+                        )
+                    )
+
+                # get distance with used ses-2 coordinate
+                eucl = math.dist(target_ses2,new_coord)
+                reg_acc.append(eucl)
+
+                # remove temporary files
+                os.remove(out_csv)
+
+                # -----------------------------------------------------------------------------------
+                # get actual motion parameters from matrix
+                matrix = utils.get_matrixfromants(tmp_file, invert=False)
+
+                # read in rotation matrix
+                r = R.from_matrix(matrix[:3,:3])
+                euler = r.as_euler('zxy')
+
+                # combine rotations and translations
+                cols = ["roll","pitch","yaw","x","y","z"]
+                full = np.concatenate((euler, matrix[:-1,-1]))
+                df = pd.DataFrame(full[np.newaxis,...], columns=cols)
+
+                subj_trafo.append(df)
+
+                # clean up
+                os.remove(tmp_file)
+
+            if len(subj_trafo) == 0:
+                raise ValueError(f"No objects to concatenate for '{subject}'")
+
+            subj_trafo = pd.concat(subj_trafo)
+            subj_trafo["subject"],subj_trafo["run"], subj_trafo["eucl"] = subject,np.arange(1,len(trafos)+1), np.array(reg_acc)
+            self.df_moco.append(subj_trafo)
+
+        self.df_moco = pd.concat(self.df_moco).set_index(["subject","run"])
+
+    def plot_run_to_run_euclidian_as_lines(
+        self, 
+        axs=None, 
+        add_title=True,
+        exclude=True):
+
+        if not isinstance(axs, (list,np.ndarray)):
+            _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5), gridspec_kw={"wspace": 0.3})
+        else:
+            if len(axs) != len(self.process_subjs):
+                raise ValueError(f"Number of axes ({len(axs)}) must match number of subjects ({len(self.process_subjs)})")
+
+        for ix,subject in enumerate(self.process_subjs):
+            
+            # get subject-specific parameters
+            df = utils.select_from_df(self.df_moco, expression=f"subject = {subject}")
+            
+            # filter out excluded runs
+            if exclude:
+                exclude = self.subj_obj.get_exclude(subject)
+                for run in exclude:
+                    df = utils.select_from_df(df, expression=f"run != {run}")
+
+            y_lbl = None
+            if ix == 0:
+                y_lbl = "euclidian spread (mm)"
+
+            plotting.LazyPlot(
+                df["eucl"].values,
+                axs=axs[ix],
+                line_width=2,
+                y_label=y_lbl,
+                color=self.sub_colors[ix],
+                x_ticks=[],
+                x_label="run-to-run",
+                markers="x",
+                y_lim=[0,1.5],
+                y_ticks=[0,0.5,1,1.5]
+            )            
+
+            if add_title:
+                axs[ix].set_title(
+                    subject, 
+                    fontsize=24, 
+                    color=self.sub_colors[ix], 
+                    fontweight="bold",
+                    y=1.02)
+
+    def plot_run_to_run_euclidian_as_bar(self, axs=None):
+
+        if axs == None:
+            _,axs = plt.subplots(figsize=(1,8))
+
+        # pivot the dataframe so that it's compatible with LazyBar
+        if not hasattr(self, "df_moco_piv"):
+            self.pivot_df()
+
+        self.df_eucl = utils.select_from_df(self.df_moco_piv, expression="code = 6")
+        self.euclidian_plot = plotting.LazyBar(
+            data=self.df_eucl,
+            x="par",
+            y="val",
+            sns_ori="v",
+            sns_offset=5,
+            axs=axs,
+            add_labels=True,
+            color="#cccccc",
+            add_points=True,
+            points_cmap=self.sub_colors,
+            points_hue="subject",    
+            y_label2="euclidian spread (mm)",
+            # lim=[0,1],
+            # ticks=list(np.arange(0,1.2,0.2)),
+            fancy=True,
+            trim_bottom=True)
+
+    def plot_single_motion_estimates(
+        self, 
+        axs=None,
+        subject=None,
+        add_title=True,
+        add_labels=True,
+        add_legend=True,
+        cmaps=["viridis","inferno"]):
+
+        if not isinstance(axs, (list,np.ndarray)):
+            fig,axs = plt.subplots(
+                ncols=2, 
+                figsize=(8,8),
+                gridspec_kw={"wspace": 0.3})
+        else:
+            if len(axs) != 2:
+                raise ValueError(f"Number of axes ({len(axs)}) must be 2")
+
+        sub_pars = utils.select_from_df(self.df_moco, expression=f"subject = {subject}")
+        for ix,(tt,cmap) in enumerate(zip(
+            ["rotations","translations"],
+            cmaps)):
+
+            if tt == "rotations":
+                pars = list(self.df_moco.columns)[:3]
+                y_lbl = "rotation (rad)"
+            else:
+                pars = list(self.df_moco.columns)[3:-2]
+                y_lbl = "translation (mm)"
+            
+            lbl = None
+            if add_labels:
+                lbl = y_lbl
+            
+            leg = None
+            if add_legend:
+                leg = pars.copy()
+
+            plotting.LazyPlot(
+                [sub_pars[par].values for par in pars],
+                axs=axs[ix],
+                line_width=2,
+                labels=leg,
+                y_label=lbl,
+                cmap=cmap,
+                x_ticks=[],
+                markers=["x","x","x"]
+            )
+
+        if add_title:
+            fig.suptitle(subject, fontsize=24)
+
+    def plot_translations(self, axs=None, figsize=(2,8)):
+
+        # pivot the dataframe so that it's compatible with LazyBar
+        if not hasattr(self, "df_moco_piv"):
+            self.pivot_df()
+
+        if axs == None:
+            _,axs = plt.subplots(figsize=figsize)
+
+        # 6th element is euclidian distance
+        self.df_translations = utils.select_from_df(self.df_moco_piv, expression=("code ge 3","&","code != 6"))
+
+        self.translation_plot = plotting.LazyBar(
+            data=self.df_translations,
+            x="par",
+            y="val",
+            sns_ori="v",
+            sns_offset=5,
+            axs=axs,
+            add_labels=True,
+            color="#cccccc",
+            add_points=True,
+            points_cmap=self.sub_colors,
+            points_hue="subject",    
+            y_label2="displacement (mm)",
+            # lim=[0,1],
+            # ticks=list(np.arange(0,1.2,0.2)),
+            fancy=True,
+            trim_bottom=True)
+
+    def plot_rotations(self, axs=None, figsize=(2,8)):
+
+        # pivot the dataframe so that it's compatible with LazyBar
+        if not hasattr(self, "df_moco_piv"):
+            self.pivot_df()
+
+        if axs == None:
+            _,axs = plt.subplots(figsize=figsize)
+
+        self.df_translations = utils.select_from_df(self.df_moco_piv, expression="code lt 3")
+
+        self.translation_plot = plotting.LazyBar(
+            data=self.df_translations,
+            x="par",
+            y="val",
+            sns_ori="v",
+            sns_offset=5,
+            axs=axs,
+            add_labels=True,
+            color="#cccccc",
+            add_points=True,
+            points_cmap=self.sub_colors,
+            points_hue="subject",    
+            y_label2="rotations (rad)",
+            # lim=[0,1],
+            # ticks=list(np.arange(0,1.2,0.2)),
+            fancy=True,
+            trim_bottom=True)            
+
+    def compile_motion_figure(
+        self,
+        figsize=(24,10),
+        save_as=None):
+
+        self.fig = plt.figure(
+            figsize=figsize,
+            constrained_layout=True)
+
+        self.subfigs = self.fig.subfigures(
+            ncols=len(self.process_subjs),
+            nrows=2,
+            wspace=0.1,
+            hspace=0.2)
+
+        for ix,subject in enumerate(self.process_subjs):
+
+            add_legend = False
+            add_labels = False
+            if ix == 0:
+                add_labels = True
+            elif ix == len(self.process_subjs)-1:
+                add_legend = True
+
+            # plot
+            self.plot_single_motion_estimates(
+                subject=subject,
+                axs=self.subfigs[ix,:],
+                add_labels=add_labels,
+                add_legend=add_legend,
+                add_title=False)
+
+            # add title
+            self.subfigs[0,ix].set_title(
+                subject, 
+                fontsize=24, 
+                color=self.sub_colors[ix], 
+                fontweight="bold",
+                y=1.02)
+        
+        if isinstance(save_as, str):
+            for ext in ["png","svg"]:
+
+                fname = f"{save_as}.{ext}"
+                utils.verbose(f"Writing '{fname}'", self.verbose)
+
+                self.fig.savefig(
+                    fname,
+                    bbox_inches="tight",
+                    dpi=300,
+                    facecolor="white"
+                )
+
+class AnatomicalPrecision(MotionEstimates):
 
     def __init__(
         self,
@@ -1610,11 +1990,11 @@ class AnatomicalPrecision(MainFigure):
         utils.verbose("Compiling figure. May take a few minutes..", True)
 
         # initialize figure
-        self.fig = plt.figure(figsize=(24,13))
+        self.fig = plt.figure(figsize=(24,17))
         self.sf0 = self.fig.subfigures(
-            nrows=3, 
-            height_ratios=[0.7,0.6,0.5],
-            hspace=0.2)
+            nrows=2, 
+            height_ratios=[0.5,1],
+            hspace=0.1)
 
         # do this sketchy bit to get one tiny axis next to a big one
         self.gsbig = self.sf0[0].add_gridspec(
@@ -1629,8 +2009,7 @@ class AnatomicalPrecision(MainFigure):
         self.gssmall = self.sf0[0].add_gridspec(ncols=2, nrows=3, width_ratios=[0.1,0.75])
         ax2 = self.sf0[0].add_subplot(self.gssmall[0])
 
-        self.sf0_ax1 = self.sf0[1].subplots(ncols=len(self.process_subjs), gridspec_kw={"wspace": 0.2})
-        self.sf0_ax2 = self.sf0[2].subplots(ncols=len(self.process_subjs), gridspec_kw={"wspace": 0.2})
+        self.sf0_ax1 = self.sf0[1].subplots(ncols=len(self.process_subjs), nrows=3, gridspec_kw={"wspace": 0.2, "hspace": 0.3})
 
         plt.tight_layout()
         self.plot_reg_overview(
@@ -1639,10 +2018,9 @@ class AnatomicalPrecision(MainFigure):
 
         # add the individual elements to their axes
         self.plot_smoothed_target(axs=ax2, **kwargs)
-        self.plot_beam_on_surface(axs=self.sf0_ax1)
-        self.plot_individual_distributions(
-            axs=self.sf0_ax2, 
-            add_title=False)
+        self.plot_beam_on_surface(axs=self.sf0_ax1[0,:])
+        self.plot_individual_distributions(axs=self.sf0_ax1[1,:], add_title=False)
+        self.plot_run_to_run_euclidian_as_lines(axs=self.sf0_ax1[2,:], add_title=False)
 
         # make the arrow
         xyA = [1150,800]
@@ -1670,9 +2048,9 @@ class AnatomicalPrecision(MainFigure):
         # make annotations
         top_y = 1.02
         for y_pos,let,ax in zip(
-            [top_y,0.6,0.31],
-            ["A","C","D"],
-            [ax2,self.sf0_ax1[0],self.sf0_ax2[0]]):
+            [top_y,0.63,0.41,0.2],
+            ["A","C","D","E"],
+            [ax2,self.sf0_ax1[0,0],self.sf0_ax1[1,0],self.sf0_ax1[2,0]]):
 
             ax.annotate(
                 let, 
@@ -2323,264 +2701,6 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             fontsize=28, 
             xycoords="figure fraction")
 
-        if isinstance(save_as, str):
-            for ext in ["png","svg"]:
-
-                fname = f"{save_as}.{ext}"
-                utils.verbose(f"Writing '{fname}'", self.verbose)
-
-                self.fig.savefig(
-                    fname,
-                    bbox_inches="tight",
-                    dpi=300,
-                    facecolor="white"
-                )
-
-class MotionEstimates(MainFigure):
-
-    def __init__(
-        self,
-        moco_csv=None,
-        **kwargs):
-        
-        self.moco_csv = moco_csv
-        self.__dict__.update(kwargs)
-        super().__init__(**kwargs)
-
-        if isinstance(self.moco_csv, str) and os.path.exists(self.moco_csv):
-            utils.verbose(f"Reading '{self.moco_csv}'", self.verbose)
-            self.df_moco = pd.read_csv(self.moco_csv).set_index(["subject","run"])
-        else:
-            self.get_transformations()
-
-            if not isinstance(self.moco_csv, str):
-                self.moco_csv = opj(self.data_dir, f"sub-all_model-{self.model}_desc-slice_motion.csv")
-
-            utils.verbose(f"Writing '{self.moco_csv}'", self.verbose)
-            self.df_moco.to_csv(self.moco_csv)        
-
-    def pivot_df(self):
-        
-        self.df_moco_piv = []
-
-        for subject in self.process_subjs:
-            
-            sub_df = utils.select_from_df(self.df_moco, expression=f"subject = {subject}")
-
-            new_df = {}
-            for par in ["code","par"]:
-                new_df[par] = []
-
-            dfs = []
-            for ix,pp in enumerate(list(sub_df.columns)):
-                new_df = {}
-                new_df["val"] = sub_df[pp].values
-                new_df["code"] = ix
-                new_df["par"] = pp
-
-                dfs.append(pd.DataFrame(new_df))
-
-            dfs = pd.concat(dfs)
-            dfs["subject"] = subject
-            
-            self.df_moco_piv.append(dfs)
-        
-        self.df_moco_piv = pd.concat(self.df_moco_piv)
-
-    def get_transformations(self):
-        
-        self.df_moco = []
-        for subject in self.process_subjs:
-            
-            ses = self.subj_obj.get_session(subject)
-            trafos = utils.FindFiles(opj(self.base_dir, subject, f"ses-{ses}", "anat"), extension="txt").files
-
-            subj_trafo = []
-            for ff in trafos:
-                tmp_file = opj(os.path.dirname(ff), "tmp.mat")
-                cmd = f"ConvertTransformFile 3 {ff} {tmp_file} --convertToAffineType"
-                
-                try:
-                    os.system(cmd)
-                except:
-                    raise Exception("Could not run convertToTransformFile")
-
-                matrix = utils.get_matrixfromants(tmp_file, invert=False)
-
-                r = R.from_matrix(matrix[:3,:3])
-                euler = r.as_euler('zxy')
-
-                # combine rotations and translations
-                cols = ["roll","pitch","yaw","x","y","z"]
-                full = np.concatenate((euler, matrix[:-1,-1]))
-                df = pd.DataFrame(full[np.newaxis,...], columns=cols)
-
-                subj_trafo.append(df)
-
-                # clean up
-                os.remove(tmp_file)
-
-            subj_trafo = pd.concat(subj_trafo)
-            subj_trafo["subject"],subj_trafo["run"] = subject,np.arange(1,len(trafos)+1)
-            self.df_moco.append(subj_trafo)
-
-        self.df_moco = pd.concat(self.df_moco).set_index(["subject","run"])
-
-    def plot_single_motion_estimates(
-        self, 
-        axs=None,
-        subject=None,
-        add_title=True,
-        add_labels=True,
-        add_legend=True,
-        cmaps=["viridis","inferno"]):
-
-        if not isinstance(axs, (list,np.ndarray)):
-            fig,axs = plt.subplots(
-                ncols=2, 
-                figsize=(8,8),
-                gridspec_kw={"wspace": 0.3})
-        else:
-            if len(axs) != 2:
-                raise ValueError(f"Number of axes ({len(axs)}) must be 2")
-
-        sub_pars = utils.select_from_df(self.df_moco, expression=f"subject = {subject}")
-
-        
-        for ix,(tt,cmap) in enumerate(zip(
-            ["rotations","translations"],
-            cmaps)):
-
-            if tt == "rotations":
-                pars = list(self.df_moco.columns)[:3]
-                y_lbl = "rotation (rad)"
-            else:
-                pars = list(self.df_moco.columns)[3:]
-                y_lbl = "translation (mm)"
-            
-            lbl = None
-            if add_labels:
-                lbl = y_lbl
-            
-            leg = None
-            if add_legend:
-                leg = pars.copy()
-
-            plotting.LazyPlot(
-                [sub_pars[par].values for par in pars],
-                axs=axs[ix],
-                line_width=2,
-                labels=leg,
-                y_label=lbl,
-                cmap=cmap,
-                x_ticks=[],
-                markers=["x","x","x"]
-            )
-
-        if add_title:
-            fig.suptitle(subject, fontsize=24)
-
-    def plot_translations(self, axs=None, figsize=(2,8)):
-
-        # pivot the dataframe so that it's compatible with LazyBar
-        if not hasattr(self, "df_moco_piv"):
-            self.pivot_df()
-
-        if axs == None:
-            _,axs = plt.subplots(figsize=figsize)
-
-        self.df_translations = utils.select_from_df(self.df_moco_piv, expression="code ge 3")
-
-        self.translation_plot = plotting.LazyBar(
-            data=self.df_translations,
-            x="par",
-            y="val",
-            sns_ori="v",
-            sns_offset=5,
-            axs=axs,
-            add_labels=True,
-            color="#cccccc",
-            add_points=True,
-            points_cmap=self.sub_colors,
-            points_hue="subject",    
-            y_label2="displacement (mm)",
-            # lim=[0,1],
-            # ticks=list(np.arange(0,1.2,0.2)),
-            fancy=True,
-            trim_bottom=True)
-
-    def plot_rotations(self, axs=None, figsize=(2,8)):
-
-        # pivot the dataframe so that it's compatible with LazyBar
-        if not hasattr(self, "df_moco_piv"):
-            self.pivot_df()
-
-        if axs == None:
-            _,axs = plt.subplots(figsize=figsize)
-
-        self.df_translations = utils.select_from_df(self.df_moco_piv, expression="code lt 3")
-
-        self.translation_plot = plotting.LazyBar(
-            data=self.df_translations,
-            x="par",
-            y="val",
-            sns_ori="v",
-            sns_offset=5,
-            axs=axs,
-            add_labels=True,
-            color="#cccccc",
-            add_points=True,
-            points_cmap=self.sub_colors,
-            points_hue="subject",    
-            y_label2="rotations (rad)",
-            # lim=[0,1],
-            # ticks=list(np.arange(0,1.2,0.2)),
-            fancy=True,
-            trim_bottom=True)            
-
-    def compile_motion_figure(
-        self,
-        figsize=(24,10),
-        save_as=None):
-
-        self.fig = plt.figure(
-            figsize=figsize,
-            constrained_layout=True)
-
-        self.subfigs = self.fig.subfigures(
-            ncols=len(self.process_subjs),
-            wspace=0.1)
-
-        for ix,subject in enumerate(self.process_subjs):
-            
-            # make two subplots for each subject
-            sub_ax = self.subfigs[ix].subplots(
-                nrows=2,
-                gridspec_kw={"hspace": 0.1})
-
-            add_legend = False
-            add_labels = False
-            if ix == 0:
-                add_labels = True
-            elif ix == len(self.process_subjs)-1:
-                add_legend = True
-
-            # plot
-            self.plot_single_motion_estimates(
-                subject=subject,
-                axs=sub_ax,
-                add_labels=add_labels,
-                add_legend=add_legend,
-                add_title=False)
-
-            # add title
-            sub_ax[0].set_title(
-                subject, 
-                fontsize=24, 
-                color=self.sub_colors[ix], 
-                fontweight="bold",
-                y=1.02)
-        
         if isinstance(save_as, str):
             for ext in ["png","svg"]:
 

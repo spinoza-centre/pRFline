@@ -73,6 +73,7 @@ Example
     im4 = figures.AnatomicalPrecision(
         full_dict=params_fn,
         reg_csv=opj(data_dir, "sub-all_desc-registration.csv"),
+        moco_csv=opj(data_dir, "sub-all_model-gauss_desc-slice_motion.csv"),
         model="gauss",
         verbose=True
     )
