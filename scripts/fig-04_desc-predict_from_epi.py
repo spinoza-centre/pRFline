@@ -4,7 +4,7 @@
 #$ -j Y
 #$ -o ../logs
 #$ -V
-#$ -N predict_from_epi
+#$ -N f04_predict_from_epi
 
 import os
 import sys
@@ -17,7 +17,7 @@ opd = os.path.dirname
 
 def main(argv):
 
-    """predict_from_epi.py
+    """fig-04_desc-predict_from_epi.py
 
 Creates the figure showing the predicted timecourse of the target pRF given the line-scanning design matrix.
 
@@ -33,8 +33,8 @@ Parameters
 
 Example
 ----------
->>> ./main_figure.py
->>> ./main_figure.py --dog
+>>> ./fig-04_desc-predict_from_epi.py
+>>> ./fig-04_desc-predict_from_epi.py --dog
     """
 
     subject = "sub-005"
@@ -63,7 +63,7 @@ Example
         elif opt in ("--css"):
             model = "css"         
 
-    utils.verbose("\npredict_from_epi.py\n", verbose)
+    utils.verbose("\nfig-04_desc-predict_from_epi.py\n", verbose)
 
     # set defaults
     fig_dir = opj(opd(opd(pRFline.__file__)), "figures")
@@ -81,8 +81,10 @@ Example
     im3 = figures.WholeBrainToLine(
         full_dict=params_fn,
         h5_file=h5_file,
-        model=model,
-        verbose=True  
+        model="gauss",
+        verbose=True,
+        label_size=20,
+        font_size=24
     )
 
     im3.plot_predictions(
@@ -90,7 +92,8 @@ Example
         exclude_line=False, 
         posthoc=True,
         save_as=opj(fig_dir, f"sub-all_model-{model}_fig-4_desc-predict_from_epi"),
-        ast_frac=0.05)
+        ast_frac=0.05,
+        annot_size=32)
 
 if __name__ == "__main__":
     main(sys.argv[1:])

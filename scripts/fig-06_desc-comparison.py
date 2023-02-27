@@ -4,7 +4,7 @@
 #$ -j Y
 #$ -o ../logs
 #$ -V
-#$ -N comparison_figure
+#$ -N f06_comparison_figure
 
 import os
 import sys
@@ -18,7 +18,7 @@ opd = os.path.dirname
 
 def main(argv):
 
-    """comparison_figure.py
+    """fig-06_desc-comparison.py
 
 Plots the effect of smoothing on distance measures.
 
@@ -32,8 +32,8 @@ Parameters
 
 Example
 ----------
->>> ./comparison_figure.py
->>> ./comparison_figure.py -s sub-003 
+>>> ./fig-06_desc-comparison.py
+>>> ./fig-06_desc-comparison.py -s sub-003 
     """
 
     subject = "sub-005"
@@ -62,7 +62,7 @@ Example
         elif opt in ("--css"):
             model = "css"         
 
-    utils.verbose("\ncomparison_figure.py", verbose)
+    utils.verbose("\nfig-06_desc-comparison.py", verbose)
 
     # set defaults
     results_dir = opj(opd(opd(pRFline.__file__)), "results")

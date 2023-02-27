@@ -4,7 +4,7 @@
 #$ -j Y
 #$ -o ../logs
 #$ -V
-#$ -N main_figure
+#$ -N f05_main_figure
 
 import os
 import sys
@@ -18,7 +18,7 @@ opd = os.path.dirname
 
 def main(argv):
 
-    """main_figure.py
+    """fig-05_desc-main_figure.py
 
 Produces the main figure containing details on the overlap (subject-specific as well as normalized), r2 measures, and measures of distances on the surface.
 
@@ -32,8 +32,8 @@ Parameters
 
 Example
 ----------
->>> ./main_figure.py
->>> ./main_figure.py --dog
+>>> ./fig-05_desc-main_figure.py
+>>> ./fig-05_desc-main_figure.py --dog
     """
 
     subject = "sub-002"
@@ -62,7 +62,7 @@ Example
         elif opt in ("--css"):
             model = "css"         
 
-    utils.verbose("\nmain_figure.py\n", verbose)
+    utils.verbose("\nfig-05_desc-main_figure.py\n", verbose)
 
     # set defaults
     results_dir = opj(opd(opd(pRFline.__file__)), "results")
@@ -107,7 +107,9 @@ Example
         model=model,
         cmap=cmap_subj,
         verbose=True,
-        targ_match_colors=["r","b"]
+        targ_match_colors=["r","b"],
+        label_size=20,
+        font_size=24
     )
 
     # compile the figure
@@ -117,15 +119,15 @@ Example
         save_as=opj(fig_dir, f"sub-all_model-{model}_fig-5_desc-functional_precision"),
         coord_targ=(1594,3172),
         coord_closest=(1594,3205),
-        include=["euclidian","geodesic"],
-        fontsize=28,
+        include=["euclidean","geodesic"],
         inset_axis=[0.6,-0.25,0.7,0.7],
         inset_extent=[1000,2600,2400,3400],
         cbar_inset=[0.1,1.1,0.8,0.05],
         txt_pos1=(-50,15),
         txt_pos2=(0,-25),
         flip_ticks=False,
-        flip_label=True)
+        flip_label=True,
+        annot_size=32)
 
 if __name__ == "__main__":
     main(sys.argv[1:])

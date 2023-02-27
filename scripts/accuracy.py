@@ -171,7 +171,7 @@ Example
         utils.verbose(f"{subject}: mean deviation = {round(reg_acc.mean(),2)}mm", verbose)
 
         # create dataframe and append
-        tmp_df = pd.DataFrame(reg_acc, columns=["euclidian"])
+        tmp_df = pd.DataFrame(reg_acc, columns=["euclidean"])
         tmp_df["subject"] = subject
         df_reg.append(tmp_df)
 

@@ -123,7 +123,7 @@ Example
 
     # initiate dictionary
     distsurf = {}
-    for ii in ["subject","geodesic","euclidian","dva"]:
+    for ii in ["subject","geodesic","euclidean","dva"]:
         distsurf[ii] = []
 
     if full_plot:
@@ -198,7 +198,7 @@ Example
             # append to list
             distsurf["subject"].append(subject)
             distsurf["geodesic"].append(sg.dist_geodesic)
-            distsurf["euclidian"].append(sg.dist_euclidian)
+            distsurf["euclidean"].append(sg.dist_euclidian)
             distsurf["dva"].append(sg.dva_dist)
 
             if webshow or full_plot:

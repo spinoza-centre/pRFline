@@ -29,7 +29,7 @@ import string
 opj = os.path.join
 opd = os.path.dirname
 
-class MainFigure():
+class MainFigure(plotting.Defaults):
 
     def __init__(
         self,
@@ -40,6 +40,7 @@ class MainFigure():
         verbose=False,
         cmap="Set2",
         targ_match_colors=["r","b"],
+        **kwargs
         ):
         
         self.figsize = figsize
@@ -52,8 +53,12 @@ class MainFigure():
         self.results_dir = opj(opd(opd(pRFline.__file__)), "results")
         self.data_dir = opj(opd(opd(pRFline.__file__)), "data")
 
+        # initialize plotting defaults
+        super().__init__()
+        self.__dict__.update(kwargs)
+        self.update_rc(self.fontname)
+
         # don't inherit to keep it more separate
-        self.plot_defaults = plotting.Defaults()
         self.subj_obj = SubjectsDict()
         self.process_subjs = self.subj_obj.get_subjects()
 
@@ -193,7 +198,9 @@ class MainFigure():
         self, 
         axs=None, 
         include_ribbon=False,
-        posthoc=False):
+        posthoc=False,
+        annotate=None,
+        annot_size=32):
 
         if axs == None:
             _,axs = plt.subplots(figsize=(4,8))
@@ -220,11 +227,13 @@ class MainFigure():
             add_points=True,
             points_cmap=self.sub_colors,
             points_hue="subject",    
-            y_label2="variance explained (r2)",
+            y_label2="variance explained (r$^2$)",
             lim=[0,1],
             ticks=list(np.arange(0,1.2,0.2)),
             fancy=True,
-            trim_bottom=True)
+            trim_bottom=True,
+            font_size=self.font_size,
+            label_size=self.label_size)
 
         # run posthoc?
         if posthoc:
@@ -237,14 +246,22 @@ class MainFigure():
 
             self.posth.plot_bars()
 
+        if isinstance(annotate, str):
+            axs.annotate(
+                annotate,
+                (-0.6,1),
+                fontsize=annot_size,
+                xycoords="axes fraction",
+            )      
+
     def compile_figure(
         self,
         img_dist=None,
         coord_targ=(1594,3172),
         coord_closest=(1594,3205),
         csv_file=None,
-        include=["euclidian","geodesic"],
-        fontsize=28,
+        include=["euclidean","geodesic"],
+        annot_size=30,
         save_as=None,
         inset_axis=[0.6,-0.25,0.7,0.7],
         inset_extent=[1000,2600,2400,3400],
@@ -266,13 +283,22 @@ class MainFigure():
                 'wspace': 0.6})
 
         # plot subject-specific overlap
-        self.plot_overlap(axs=self.row1)
+        self.plot_overlap(
+            axs=self.row1, 
+            annot_size=annot_size,
+            annotate="A")
 
         # plot normalized pRFs
-        self.plot_norm_overlap(axs=self.row2[0])
+        self.plot_norm_overlap(
+            axs=self.row2[0],
+            annotate="B",
+            annot_size=annot_size)
 
         # plot r2
-        self.plot_r2(axs=self.row2[1])        
+        self.plot_r2(
+            axs=self.row2[1],
+            annotate="C",
+            annot_size=annot_size)
 
         # plot surface
         self.img_dist = img_dist
@@ -289,38 +315,31 @@ class MainFigure():
             txt_pos2=txt_pos2,
             flip_ticks=flip_ticks,
             flip_label=flip_label,
-            clip_x=clip_x)
+            clip_x=clip_x,
+            annotate="D",
+            annot_size=annot_size)
 
         # plot distances
+        move_box = False
+        if len(include) == 1:
+            annot_letters = ["E"]
+        elif len(include) == 2:
+            annot_letters = ["E","F"]
+            move_box = True
+        if len(include) == 3:
+            annot_letters = ["E","F","G"]
+        
         self.plot_surface_distances(
             axs=self.row2[-len(include):],
             csv_file=csv_file,
-            include=include
+            include=include,
+            annot_size=annot_size,
+            annotate=annot_letters,
+            move_box=move_box
         )
 
         # tight layout befor annotations
         plt.tight_layout()
-
-        # make annotations
-        dist_from_x0 = 1/(self.fig.get_size_inches()*self.fig.dpi)[0]*50
-        self.row1[0].annotate(
-            "A", 
-            (dist_from_x0,1.05), 
-            fontsize=fontsize, 
-            xycoords="figure fraction")
-
-        for ix,ax in enumerate(self.row2):
-
-            if ix == 0:
-                pos = dist_from_x0
-            else:
-                pos = self.row2[ix].get_position().x0-dist_from_x0
-
-            ax.annotate(
-                self.alphabet[ix+1], 
-                (pos,0.65), 
-                fontsize=fontsize, 
-                xycoords="figure fraction")
 
         # save figure?
         if isinstance(save_as, str):
@@ -354,7 +373,9 @@ class MainFigure():
         dist_cm="magma_r",
         flip_ticks=False,
         flip_label=False,
-        clip_x=3900):
+        clip_x=3900,
+        annotate=None,
+        annot_size=32):
 
         if axs == None:
             _,axs = plt.subplots(figsize=(8,8))
@@ -389,7 +410,7 @@ class MainFigure():
                 hh,
                 color=col,
                 fontweight="bold",
-                fontsize=self.plot_defaults.font_size,
+                fontsize=self.font_size,
                 xy=cc, 
                 xycoords='data',
                 xytext=pos, 
@@ -433,15 +454,34 @@ class MainFigure():
                 vmax=vmax,
                 ori="horizontal",
                 flip_ticks=flip_ticks,
-                flip_label=flip_label
+                flip_label=flip_label,
+                font_size=self.font_size,
+                label_size=self.label_size
             )
+
+            annot_ax = cbar_ax
+            pos = (-0.25,1)
+        else:
+            annot_ax = axs
+            pos = (0,1)
+
+        if isinstance(annotate, str):
+            annot_ax.annotate(
+                annotate,
+                pos,
+                fontsize=annot_size,
+                xycoords="axes fraction",
+            )            
 
     def plot_surface_distances(
         self,
         csv_file=None,
-        include=["euclidian","geodesic","dva"],
+        include=["euclidean","geodesic","dva"],
         axs=None,
-        subject=None):
+        subject=None,
+        annotate=None,
+        annot_size=32,
+        move_box=False):
 
         if isinstance(csv_file, str):
             if not os.path.exists(csv_file):
@@ -471,10 +511,10 @@ class MainFigure():
 
             if par == "dva":
                 y_lim = [0,1]
-                y_lbl = f"distance target-match [dva]"
+                y_lbl = f"distance [dva]"
             else:
                 y_lim = [0,12]
-                y_lbl = f"distance target-match [{par}; mm]"
+                y_lbl = f"{par} distance (mm)"
             
             ax = axs[ix]
             plotting.LazyBar(
@@ -491,13 +531,30 @@ class MainFigure():
                 y_label2=y_lbl,
                 fancy=True,
                 lim=y_lim,
-                trim_bottom=True
-            )
+                trim_bottom=True,
+                font_size=self.font_size,
+                label_size=self.label_size)
+            
+            if move_box and ix == 0:
+                box = ax.get_position()
+                box.x0 += 30
+                box.x1 += 30
+                ax.set_position(box)
+
+            if isinstance(annotate, list):
+                ax.annotate(
+                    annotate[ix],
+                    (-2,1),
+                    fontsize=annot_size,
+                    xycoords="axes fraction",
+            )                 
 
     def plot_norm_overlap(
         self,
         axs=None,
-        vf_extent=[-5,5]):
+        vf_extent=[-5,5],
+        annotate=None,
+        annot_size=32):
 
         if axs == None:
             _,axs = plt.subplots(figsize=(8,8))
@@ -574,19 +631,28 @@ class MainFigure():
             axs.add_artist(circ3)
 
         # add axis annotations
-        for ii,val in zip(["-5sd","5sd","-5sd","5sd"], [(0,0.51),(0.98,0.51),(0.51,0),(0.51,0.98)]):
+        for ii,val in zip(["-5sd","5sd","-5sd","5sd"], [(0,0.51),(0.96,0.51),(0.51,0),(0.51,0.96)]):
             axs.annotate(
                 ii,
                 val,
-                fontsize=self.plot_defaults.label_size,
-                xycoords="axes fraction"
+                fontsize=self.label_size,
+                xycoords="axes fraction",
+            )
+
+        if isinstance(annotate, str):
+            axs.annotate(
+                annotate,
+                (0,1),
+                fontsize=annot_size,
+                xycoords="axes fraction",
             )            
 
     def plot_overlap(
         self, 
         axs=None,
         vf_extent=[-5,5],
-        fontsize=18):
+        annot_size=32,
+        annotate=None):
 
         if not isinstance(axs, (list,np.ndarray)):
             _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
@@ -650,16 +716,25 @@ class MainFigure():
             axs[ix].add_artist(sub_line)
             axs[ix].set_title(
                 sub, 
-                fontsize=fontsize, 
+                fontsize=self.font_size, 
                 color=self.sub_colors[ix], 
-                fontweight="bold")
+                fontweight="bold",
+                y=1.05)
 
-        for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.98,0.51),(0.51,0),(0.51,0.96)]):
+        for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.96,0.51),(0.51,0),(0.51,0.96)]):
             axs[0].annotate(
                 ii,
                 val,
-                fontsize=self.plot_defaults.label_size,
+                fontsize=self.label_size,
                 xycoords="axes fraction"
+            )
+
+        if isinstance(annotate, str):
+            axs[0].annotate(
+                annotate,
+                (0,1.1),
+                fontsize=annot_size,
+                xycoords="axes fraction",
             )
 
 
@@ -691,7 +766,7 @@ class CrossBankFigure(MainFigure):
         self,
         axs=None,
         csv_file=None,
-        include=["euclidian","geodesic"],
+        include=["euclidean","geodesic"],
         cmap="inferno",
         move_box=False,
         leg_anchor=(1.8,1)):
@@ -768,7 +843,7 @@ class CrossBankFigure(MainFigure):
         clip_x=3800,
         cbar_inset=[-0.15,0.1,0.02,0.8],
         fontsize=22,
-        include=["euclidian","geodesic"],
+        include=["euclidean","geodesic"],
         csv_file=None,
         save_as=None,
         cmap="viridis",
@@ -817,7 +892,7 @@ class CrossBankFigure(MainFigure):
         colors = sns.color_palette(self.cmap,2)
         self.axs[0].set_title(
             "unsmoothed",
-            fontname=self.plot_defaults.fontname,
+            fontname=self.fontname,
             fontsize=fontsize,
             color=colors[0],
             fontweight="bold")
@@ -836,7 +911,7 @@ class CrossBankFigure(MainFigure):
 
         self.axs[1].set_title(
             "smoothed",
-            fontname=self.plot_defaults.fontname,
+            fontname=self.fontname,
             fontsize=fontsize,
             color=colors[1],
             fontweight="bold")  
@@ -846,7 +921,7 @@ class CrossBankFigure(MainFigure):
             plotting.LazyColorbar(
                 cbar_ax,
                 cmap="magma_r",
-                txt="distance to target [dva]",
+                txt="distance to target (dva)",
                 vmin=0,
                 vmax=4,
                 ori="vertical",
@@ -1159,7 +1234,9 @@ class WholeBrainToLine(MainFigure):
             ticks=list(np.arange(0,1.2,0.2)),
             fancy=True,
             trim_bottom=True,
-            labels=["block","wb","line"])
+            labels=["block","wb","line"],
+            label_size=self.label_size,
+            font_size=self.font_size)
 
         # run posthoc?
         if posthoc:
@@ -1179,6 +1256,8 @@ class WholeBrainToLine(MainFigure):
         figsize=(24,5),
         vf_extent=[-5,5],
         save_as=None,
+        annot_size=32,
+        y_lim=[-1,1.5],
         **kwargs):
         
         # set bar width according to number of bars
@@ -1223,9 +1302,11 @@ class WholeBrainToLine(MainFigure):
             axs=ax1,
             x_lim=[0,int(self.x_axis[-1])],
             x_ticks=list(np.arange(0,self.x_axis[-1]+40,40)),
-            y_lim=[-1,1.5],
-            y_ticks=[-1,-0.5,0,0.5,1,1.5])
-
+            y_lim=y_lim,
+            y_ticks=[y_lim[0],0,y_lim[1]],
+            label_size=self.label_size,
+            font_size=self.font_size)
+        
         # make prfs
         plotting.LazyPRF(
             np.zeros((500,500)), 
@@ -1235,7 +1316,9 @@ class WholeBrainToLine(MainFigure):
             edge_color=None,
             shrink_factor=0.9,
             vf_only=True,
-            ax=ax2)
+            ax=ax2,
+            label_size=self.label_size,
+            font_size=self.font_size)
 
         for ii,col in zip([0,1],self.color[-2:]):
 
@@ -1249,11 +1332,11 @@ class WholeBrainToLine(MainFigure):
 
             ax2.add_artist(circ)
 
-        for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.98,0.51),(0.51,0),(0.51,0.96)]):
+        for ii,val in zip(["-5°","5°","-5°","5°"], [(0,0.51),(0.96,0.51),(0.51,0),(0.51,0.96)]):
             ax2.annotate(
                 ii,
                 val,
-                fontsize=self.plot_defaults.label_size,
+                fontsize=self.label_size,
                 xycoords="axes fraction"
             )
 
@@ -1272,7 +1355,8 @@ class WholeBrainToLine(MainFigure):
         plotting.fig_annot(
             self.fig,
             x0_corr=-1,
-            x_corr=-0.8)
+            x_corr=-1.5,
+            fontsize=annot_size)
 
         # save figure?
         if isinstance(save_as, str):
@@ -1400,7 +1484,7 @@ class MotionEstimates(MainFigure):
                 f"{subject}_space-ses{ses}_hemi-L_vert-{self.subj_obj.get_target(subject)}_desc-lps.csv")
 
             if not os.path.exists(file_ses2):
-                raise FileNotFoundError(f"Could not find file '{file_ses}' containing the target coordinate in ses-2 space")
+                raise FileNotFoundError(f"Could not find file '{file_ses2}' containing the target coordinate in ses-2 space")
             else:
                 target_ses2 = np.array(utils.read_chicken_csv(file_ses2))
 
@@ -1463,7 +1547,7 @@ class MotionEstimates(MainFigure):
 
         self.df_moco = pd.concat(self.df_moco).set_index(["subject","run"])
 
-    def plot_run_to_run_euclidian_as_lines(
+    def plot_run_to_run_euclidean_as_lines(
         self, 
         axs=None, 
         add_title=True,
@@ -1488,30 +1572,32 @@ class MotionEstimates(MainFigure):
 
             y_lbl = None
             if ix == 0:
-                y_lbl = "euclidian spread (mm)"
+                y_lbl = "spread (mm)"
 
             plotting.LazyPlot(
                 df["eucl"].values,
                 axs=axs[ix],
-                line_width=2,
+                line_width=4,
                 y_label=y_lbl,
                 color=self.sub_colors[ix],
                 x_ticks=[],
                 x_label="run-to-run",
                 markers="x",
                 y_lim=[0,1.5],
-                y_ticks=[0,0.5,1,1.5]
-            )            
+                y_ticks=[0,0.5,1,1.5],
+                font_size=self.font_size,
+                label_size=self.label_size
+            )
 
             if add_title:
                 axs[ix].set_title(
                     subject, 
-                    fontsize=24, 
+                    fontsize=self.font_size, 
                     color=self.sub_colors[ix], 
                     fontweight="bold",
                     y=1.02)
 
-    def plot_run_to_run_euclidian_as_bar(self, axs=None):
+    def plot_run_to_run_euclidean_as_bar(self, axs=None):
 
         if axs == None:
             _,axs = plt.subplots(figsize=(1,8))
@@ -1521,7 +1607,7 @@ class MotionEstimates(MainFigure):
             self.pivot_df()
 
         self.df_eucl = utils.select_from_df(self.df_moco_piv, expression="code = 6")
-        self.euclidian_plot = plotting.LazyBar(
+        self.euclidean_plot = plotting.LazyBar(
             data=self.df_eucl,
             x="par",
             y="val",
@@ -1533,11 +1619,14 @@ class MotionEstimates(MainFigure):
             add_points=True,
             points_cmap=self.sub_colors,
             points_hue="subject",    
-            y_label2="euclidian spread (mm)",
+            y_label2="euclidean spread (mm)",
             # lim=[0,1],
             # ticks=list(np.arange(0,1.2,0.2)),
             fancy=True,
-            trim_bottom=True)
+            trim_bottom=True,
+            font_size=self.font_size,
+            label_size=self.label_size
+        )
 
     def plot_single_motion_estimates(
         self, 
@@ -1585,7 +1674,9 @@ class MotionEstimates(MainFigure):
                 y_label=lbl,
                 cmap=cmap,
                 x_ticks=[],
-                markers=["x","x","x"]
+                markers=["x","x","x"],
+                font_size=self.font_size,
+                label_size=self.label_size
             )
 
         if add_title:
@@ -1600,7 +1691,7 @@ class MotionEstimates(MainFigure):
         if axs == None:
             _,axs = plt.subplots(figsize=figsize)
 
-        # 6th element is euclidian distance
+        # 6th element is euclidean distance
         self.df_translations = utils.select_from_df(self.df_moco_piv, expression=("code ge 3","&","code != 6"))
 
         self.translation_plot = plotting.LazyBar(
@@ -1619,7 +1710,10 @@ class MotionEstimates(MainFigure):
             # lim=[0,1],
             # ticks=list(np.arange(0,1.2,0.2)),
             fancy=True,
-            trim_bottom=True)
+            trim_bottom=True,
+            font_size=self.font_size,
+            label_size=self.label_size
+        )
 
     def plot_rotations(self, axs=None, figsize=(2,8)):
 
@@ -1648,7 +1742,10 @@ class MotionEstimates(MainFigure):
             # lim=[0,1],
             # ticks=list(np.arange(0,1.2,0.2)),
             fancy=True,
-            trim_bottom=True)            
+            trim_bottom=True,
+            font_size=self.font_size,
+            label_size=self.label_size
+        )         
 
     def compile_motion_figure(
         self,
@@ -1685,7 +1782,7 @@ class MotionEstimates(MainFigure):
             # add title
             self.subfigs[0,ix].set_title(
                 subject, 
-                fontsize=24, 
+                fontsize=self.font_size, 
                 color=self.sub_colors[ix], 
                 fontweight="bold",
                 y=1.02)
@@ -1736,7 +1833,7 @@ class AnatomicalPrecision(MotionEstimates):
             if sub_ix == 0:
                 y_lbl = "count"
 
-            y_data = utils.select_from_df(self.df_reg, expression=f"subject = {subject}")['euclidian'].values
+            y_data = utils.select_from_df(self.df_reg, expression=f"subject = {subject}")['euclidean'].values
             self.reg_plot = plotting.LazyHist(
                 y_data,
                 axs=ax,
@@ -1748,12 +1845,14 @@ class AnatomicalPrecision(MotionEstimates):
                 color=self.sub_colors[sub_ix],
                 hist_kwargs={"alpha": 0.4},
                 kde_kwargs={"linewidth": 4},
+                label_size=self.label_size,
+                font_size=self.font_size
             )
 
             if add_title:
                 ax.set_title(
                     subject, 
-                    fontsize=self.reg_plot.font_size, 
+                    fontsize=self.font_size, 
                     color=self.sub_colors[sub_ix], 
                     fontweight="bold")            
             
@@ -1768,7 +1867,7 @@ class AnatomicalPrecision(MotionEstimates):
         plotting.LazyBar(
             data=self.df_reg,
             x="subject",
-            y="euclidian",
+            y="euclidean",
             cmap=self.cmap,
             axs=axs,
             sns_ori="v",
@@ -1780,8 +1879,11 @@ class AnatomicalPrecision(MotionEstimates):
             lim=[0,0.5],
             points_alpha=0.5,
             points_color="#cccccc",
-            trim_bottom=True
+            trim_bottom=True,
+            label_size=self.label_size,
+            font_size=self.font_size
         )
+
 
     def plot_fwhm_as_bar(self, axs=None):
         
@@ -1803,11 +1905,14 @@ class AnatomicalPrecision(MotionEstimates):
             add_points=True,
             points_cmap=self.cmap,
             points_hue="subject",    
-            y_label2="euclidian spread (mm)",
+            y_label2="spread (mm)",
             fancy=True,
             lim=[0,0.1],
-            trim_bottom=True
+            trim_bottom=True,
+            label_size=self.label_size,
+            font_size=self.font_size
         )
+
     
     def plot_subject_beam(
         self, 
@@ -1874,9 +1979,10 @@ class AnatomicalPrecision(MotionEstimates):
             if add_title:
                 ax.set_title(
                     subject, 
-                    fontsize=24, 
+                    fontsize=self.font_size, 
                     color=self.sub_colors[sub_ix], 
-                    fontweight="bold")                
+                    fontweight="bold",
+                    y=1.05)                
 
     def plot_smoothed_target(
         self, 
@@ -1950,7 +2056,7 @@ class AnatomicalPrecision(MotionEstimates):
                 tt, 
                 (0.5,0.85), 
                 ha="center",
-                fontsize=20, 
+                fontsize=self.label_size, 
                 xycoords="axes fraction")
 
             ax.axis('off')
@@ -1976,7 +2082,7 @@ class AnatomicalPrecision(MotionEstimates):
                 (-0.195,0.46),
                 color="#cccccc",
                 fontweight="bold",
-                fontsize=18, 
+                fontsize=self.label_size*0.8, 
                 xycoords="axes fraction")
         except:
             pass
@@ -1984,13 +2090,13 @@ class AnatomicalPrecision(MotionEstimates):
     def compile_reg_figure(
         self,
         save_as=None,
-        fontsize=28,
+        annot_size=32,
         **kwargs):
 
         utils.verbose("Compiling figure. May take a few minutes..", True)
 
         # initialize figure
-        self.fig = plt.figure(figsize=(24,17))
+        self.fig = plt.figure(figsize=(24,19))
         self.sf0 = self.fig.subfigures(
             nrows=2, 
             height_ratios=[0.5,1],
@@ -2009,7 +2115,7 @@ class AnatomicalPrecision(MotionEstimates):
         self.gssmall = self.sf0[0].add_gridspec(ncols=2, nrows=3, width_ratios=[0.1,0.75])
         ax2 = self.sf0[0].add_subplot(self.gssmall[0])
 
-        self.sf0_ax1 = self.sf0[1].subplots(ncols=len(self.process_subjs), nrows=3, gridspec_kw={"wspace": 0.2, "hspace": 0.3})
+        self.sf0_ax1 = self.sf0[1].subplots(ncols=len(self.process_subjs), nrows=3, gridspec_kw={"wspace": 0.2, "hspace": 0.5})
 
         plt.tight_layout()
         self.plot_reg_overview(
@@ -2020,7 +2126,7 @@ class AnatomicalPrecision(MotionEstimates):
         self.plot_smoothed_target(axs=ax2, **kwargs)
         self.plot_beam_on_surface(axs=self.sf0_ax1[0,:])
         self.plot_individual_distributions(axs=self.sf0_ax1[1,:], add_title=False)
-        self.plot_run_to_run_euclidian_as_lines(axs=self.sf0_ax1[2,:], add_title=False)
+        self.plot_run_to_run_euclidean_as_lines(axs=self.sf0_ax1[2,:], add_title=False)
 
         # make the arrow
         xyA = [1150,800]
@@ -2042,11 +2148,11 @@ class AnatomicalPrecision(MotionEstimates):
             (-0.15,0.46),
             color="#cccccc",
             fontweight="bold",
-            fontsize=28, 
+            fontsize=self.font_size, 
             xycoords="axes fraction")
 
         # make annotations
-        top_y = 1.02
+        top_y = 0.98
         for y_pos,let,ax in zip(
             [top_y,0.63,0.41,0.2],
             ["A","C","D","E"],
@@ -2055,7 +2161,7 @@ class AnatomicalPrecision(MotionEstimates):
             ax.annotate(
                 let, 
                 (0,y_pos), 
-                fontsize=fontsize, 
+                fontsize=annot_size, 
                 xycoords="figure fraction")
 
         y = 0.98
@@ -2067,10 +2173,7 @@ class AnatomicalPrecision(MotionEstimates):
             ax.text(
                 *(x,y), 
                 ses,
-                size=26,
-                # bbox=dict(boxstyle="round",
-                #     ec=(1.,0.5,0.5),
-                #     fc=(1.,0.8,0.8)),
+                size=self.font_size,
                 transform=ax.transAxes)
 
         # draw lines below ses-X
@@ -2099,7 +2202,7 @@ class AnatomicalPrecision(MotionEstimates):
         self.axs[0].annotate(
             "B", 
             (x_pos,top_y), 
-            fontsize=fontsize, 
+            fontsize=annot_size, 
             xycoords="figure fraction")        
 
         # save figure
@@ -2454,7 +2557,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             axs.annotate(
                 f"{ii}°",
                 val,
-                fontsize=self.plot_defaults.label_size,
+                fontsize=self.label_size,
                 xycoords="axes fraction"
             )
             
@@ -2638,7 +2741,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             axs[0].annotate(
                 ii,
                 val,
-                fontsize=self.plot_defaults.label_size,
+                fontsize=self.label_size,
                 xycoords="axes fraction"
             )                    
 

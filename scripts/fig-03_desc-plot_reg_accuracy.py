@@ -4,7 +4,7 @@
 #$ -j Y
 #$ -o ../logs
 #$ -V
-#$ -N reg_accuracy
+#$ -N f03_plot_reg_accuracy
 
 import os
 import sys
@@ -17,7 +17,7 @@ opd = os.path.dirname
 
 def main(argv):
 
-    """plot_reg_accuracy.py
+    """fig-03_desc-plot_reg_accuracy.py
 
 Creates the figure showing the registration cascade, as well as the registration accuracy distribution between ses-1 and ses-2. 
 
@@ -31,7 +31,7 @@ Parameters
 
 Example
 ----------
->>> ./plot_reg_accuracy.py
+>>> ./fig-03_desc-plot_reg_accuracy.py
     """
 
     verbose = True
@@ -59,7 +59,7 @@ Example
         elif opt in ("--no_verbose"):
             verbose = False
 
-    utils.verbose("\nplot_reg_accuracy.py\n", verbose)
+    utils.verbose("\nfig-03_desc-plot_reg_accuracy.py\n", verbose)
 
     # set defaults
     fig_dir = opj(opd(opd(pRFline.__file__)), "figures")
@@ -75,9 +75,12 @@ Example
         reg_csv=opj(data_dir, "sub-all_desc-registration.csv"),
         moco_csv=opj(data_dir, "sub-all_model-gauss_desc-slice_motion.csv"),
         model="gauss",
-        verbose=True
-    )
-
+        verbose=True,
+        annot_size=32,
+        label_size=20,
+        font_size=24
+    )    
+    
     im4.compile_reg_figure(
         inset_axis=[0.7,-2.3,2.5,2.5],
         save_as=opj(fig_dir, f"sub-all_model-{model}_fig-3_desc-anatomical_precision"))
