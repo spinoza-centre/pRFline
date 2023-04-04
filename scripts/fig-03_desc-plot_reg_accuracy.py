@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#$ -q long.q
+#$ -q short.q
 #$ -cwd
 #$ -j Y
 #$ -o ../logs
@@ -78,7 +78,7 @@ Example
         verbose=True,
         annot_size=32,
         label_size=20,
-        font_size=24
+        font_size=26
     )    
     
     im4.compile_reg_figure(

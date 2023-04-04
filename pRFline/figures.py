@@ -449,7 +449,7 @@ class MainFigure(plotting.Defaults):
             plotting.LazyColorbar(
                 cbar_ax,
                 cmap=dist_cm,
-                txt="distance to target [dva]",
+                txt="distance to target (dva)",
                 vmin=vmin,
                 vmax=vmax,
                 ori="horizontal",
@@ -460,7 +460,7 @@ class MainFigure(plotting.Defaults):
             )
 
             annot_ax = cbar_ax
-            pos = (-0.25,1)
+            pos = (-0.25,1.85)
         else:
             annot_ax = axs
             pos = (0,1)
@@ -471,7 +471,7 @@ class MainFigure(plotting.Defaults):
                 pos,
                 fontsize=annot_size,
                 xycoords="axes fraction",
-            )            
+            )
 
     def plot_surface_distances(
         self,
@@ -715,7 +715,7 @@ class MainFigure(plotting.Defaults):
 
             axs[ix].add_artist(sub_line)
             axs[ix].set_title(
-                sub, 
+                f"sub-0{ix+1}", 
                 fontsize=self.font_size, 
                 color=self.sub_colors[ix], 
                 fontweight="bold",
@@ -1129,7 +1129,7 @@ class WholeBrainToLine(MainFigure):
         # get r2
         r2_wb = r2_score(avg_tc,pred_wb_fitted)
         # utils.verbose(f" r2 of GLM with on wb prediction: {r2_wb}", self.verbose)
-        for ii,par in zip(list(self.df_subj_r2.keys()),["wb",1,r2_wb]):
+        for ii,par in zip(list(self.df_subj_r2.keys()),["target",1,r2_wb]):
             self.df_subj_r2[ii].append(par)
 
         for ii,par in zip(list(self.df_subj_r2.keys()),["line",2,getattr(self.sb["line_obj"], f"{self.model}_iter")[0,-1]]):
@@ -1234,7 +1234,6 @@ class WholeBrainToLine(MainFigure):
             ticks=list(np.arange(0,1.2,0.2)),
             fancy=True,
             trim_bottom=True,
-            labels=["block","wb","line"],
             label_size=self.label_size,
             font_size=self.font_size)
 
@@ -1298,7 +1297,7 @@ class WholeBrainToLine(MainFigure):
             markers=['.',None,None],
             x_label="time (s)",
             y_label="amplitude (%)",
-            labels=['data','line','whole brain'],
+            labels=['data','line','target'],
             axs=ax1,
             x_lim=[0,int(self.x_axis[-1])],
             x_ticks=list(np.arange(0,self.x_axis[-1]+40,40)),
@@ -1574,19 +1573,28 @@ class MotionEstimates(MainFigure):
             if ix == 0:
                 y_lbl = "spread (mm)"
 
+            in_values = df["eucl"].values
             plotting.LazyPlot(
-                df["eucl"].values,
+                in_values,
+                xx=np.arange(0,in_values.shape[0],1),
+                x_ticks=np.arange(0,in_values.shape[0],1),
                 axs=axs[ix],
                 line_width=4,
                 y_label=y_lbl,
                 color=self.sub_colors[ix],
-                x_ticks=[],
-                x_label="run-to-run",
-                markers="x",
-                y_lim=[0,1.5],
-                y_ticks=[0,0.5,1,1.5],
+                x_label="runs",
+                markers="o",
+                markersize=12,
+                y_lim=[0,2],
+                y_ticks=[0,1,2],
                 font_size=self.font_size,
-                label_size=self.label_size
+                label_size=self.label_size,
+                add_hline = {
+                    'pos': in_values.mean(),
+                    'color': self.sub_colors[ix],
+                    'lw': 1,
+                    'ls': '--'
+                }
             )
 
             if add_title:
@@ -1595,7 +1603,7 @@ class MotionEstimates(MainFigure):
                     fontsize=self.font_size, 
                     color=self.sub_colors[ix], 
                     fontweight="bold",
-                    y=1.02)
+                    y=1)
 
     def plot_run_to_run_euclidean_as_bar(self, axs=None):
 
@@ -1851,7 +1859,7 @@ class AnatomicalPrecision(MotionEstimates):
 
             if add_title:
                 ax.set_title(
-                    subject, 
+                    f"sub-0{sub_ix+1}", 
                     fontsize=self.font_size, 
                     color=self.sub_colors[sub_ix], 
                     fontweight="bold")            
@@ -1913,7 +1921,6 @@ class AnatomicalPrecision(MotionEstimates):
             font_size=self.font_size
         )
 
-    
     def plot_subject_beam(
         self, 
         subject=None, 
@@ -1978,7 +1985,7 @@ class AnatomicalPrecision(MotionEstimates):
 
             if add_title:
                 ax.set_title(
-                    subject, 
+                    f"sub-0{sub_ix+1}", 
                     fontsize=self.font_size, 
                     color=self.sub_colors[sub_ix], 
                     fontweight="bold",
@@ -2061,39 +2068,31 @@ class AnatomicalPrecision(MotionEstimates):
 
             ax.axis('off')
 
-        xyA = [1150,800]
-        xyB = [250,800]
-        # ConnectionPatch handles the transform internally so no need to get fig.transFigure
-        arrow = patches.ConnectionPatch(
-            xyA,
-            xyB,
-            coordsA=axs[0].transData,
-            coordsB=axs[1].transData,
-            color="#cccccc",
-            arrowstyle="-| >",  # "normal" arrow
-            mutation_scale=25,  # controls arrow head size
-            linewidth=1,
-        )
-
-        try:
-            fig.patches.append(arrow)
-            axs[1].annotate(
-                "ANTs", 
-                (-0.195,0.46),
+        # make array with between FS and ses-2 low-res
+        axs[0].annotate(
+            "", 
+            xy=(1.18,0.43), 
+            xytext=(0.8,0.43), 
+            arrowprops=dict(
+                arrowstyle="-|>",
+                mutation_scale=25,
                 color="#cccccc",
-                fontweight="bold",
-                fontsize=self.label_size*0.8, 
-                xycoords="axes fraction")
-        except:
-            pass
+                linewidth=2), 
+            xycoords="axes fraction")
+
+        axs[1].annotate(
+            "ANTs", 
+            (-0.13,0.46),
+            color="#cccccc",
+            fontweight="bold",
+            fontsize=self.font_size, 
+            xycoords="axes fraction")
 
     def compile_reg_figure(
         self,
         save_as=None,
         annot_size=32,
         **kwargs):
-
-        utils.verbose("Compiling figure. May take a few minutes..", True)
 
         # initialize figure
         self.fig = plt.figure(figsize=(24,19))
@@ -2131,25 +2130,19 @@ class AnatomicalPrecision(MotionEstimates):
         # make the arrow
         xyA = [1150,800]
         xyB = [250,800]
-        arrow = patches.ConnectionPatch(
-            xyA,
-            xyB,
-            coordsA=self.axs[0].transData,
-            coordsB=self.axs[1].transData,
-            color="#cccccc",
-            arrowstyle="-| >",  # "normal" arrow
-            mutation_scale=25,  # controls arrow head size
-            linewidth=1,
-        )
+        # arrow = patches.ConnectionPatch(
+        #     xyA,
+        #     xyB,
+        #     coordsA=self.axs[0].transData,
+        #     coordsB=self.axs[1].transData,
+        #     color="#cccccc",
+        #     arrowstyle="-| >",  # "normal" arrow
+        #     mutation_scale=25,  # controls arrow head size
+        #     linewidth=1,
+        # )
 
-        self.fig.add_artist(arrow)
-        self.axs[1].annotate(
-            "ANTs", 
-            (-0.15,0.46),
-            color="#cccccc",
-            fontweight="bold",
-            fontsize=self.font_size, 
-            xycoords="axes fraction")
+        # arrow_axis = self.axs[0].inset_axes([0.7,0.4,0.45,0.05])
+        # arrow_axis.add_artist(arrow)
 
         # make annotations
         top_y = 0.98
@@ -2428,8 +2421,8 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
 
             if add_title:
                 axs[ix].set_title(
-                    subject, 
-                    fontsize=24, 
+                    f"sub-0{ix+1}", 
+                    fontsize=26, 
                     color=self.sub_colors[ix], 
                     fontweight="bold",
                     y=1.02)
@@ -2731,7 +2724,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
 
             if add_title:
                 axs[ix].set_title(
-                    subject, 
+                    f"sub-0{ix+1}", 
                     fontsize=24, 
                     color=self.sub_colors[ix], 
                     fontweight="bold",

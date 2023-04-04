@@ -109,7 +109,7 @@ Example
         verbose=True,
         targ_match_colors=["r","b"],
         label_size=20,
-        font_size=24
+        font_size=26
     )
 
     # compile the figure

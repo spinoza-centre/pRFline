@@ -42,7 +42,7 @@ Example
     model = "gauss"
 
     try:
-        opts = getopt.getopt(argv,"h:",["help", "norm", "gauss", "dog", "css"])[0]
+        opts = getopt.getopt(argv,"h:s:",["help", "norm", "gauss", "dog", "css"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?", flush=True)
         print(main.__doc__, flush=True)
@@ -84,7 +84,7 @@ Example
         model="gauss",
         verbose=True,
         label_size=20,
-        font_size=24
+        font_size=26
     )
 
     im3.plot_predictions(
@@ -94,6 +94,12 @@ Example
         save_as=opj(fig_dir, f"sub-all_model-{model}_fig-4_desc-predict_from_epi"),
         ast_frac=0.05,
         annot_size=32)
+
+    # save posthoc table
+    if hasattr(im3, "posth"):
+        fname = opj(fig_dir, f"sub-all_model-{model}_fig-4_desc-posthoc.csv")
+        utils.verbose(f"Writing '{fname}'", True)
+        im3.posth.posthoc_sorted.to_csv(fname)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
