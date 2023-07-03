@@ -14,6 +14,7 @@ from pRFline.utils import (
     SubjectsDict,
     read_subject_data)
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from matplotlib import (
     patches, 
     lines)
@@ -2223,6 +2224,8 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         metric_csv=None,
         hrf_length=30,
         code=3,
+        rib_cols=["r","b"],
+        plot_kwargs={},
         **kwargs):
         
         self.subject = subject
@@ -2231,6 +2234,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         self.metric_csv = metric_csv
         self.hrf_length = hrf_length
         self.code = code
+        self.rib_cols = rib_cols
         self.__dict__.update(kwargs)
         MainFigure.__init__(self, **kwargs)
 
@@ -2327,7 +2331,8 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         axs=None, 
         insets="mag",
         inset_axis=[0.75, 0.65, 0.3, 0.3],
-        add_title=True):
+        add_title=True,
+        plot_kwargs={}):
 
         if not isinstance(axs, (list,np.ndarray)):
             _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
@@ -2380,7 +2385,8 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                 # x_ticks=np.arange(0,30,5),
                 y_ticks=y_ticks,
                 add_hline=0,
-                trim_left=False
+                trim_left=False,
+                **plot_kwargs
             )
 
             # decide plot properties depending on which type to put on the inset axis
@@ -2417,7 +2423,9 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                     alpha=0.8,
                     fancy=True,
                     sns_offset=3,
-                    trim_bottom=True)               
+                    trim_bottom=True,
+                    error=None,
+                    **plot_kwargs)               
 
             if add_title:
                 axs[ix].set_title(
@@ -2494,20 +2502,27 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         self.pial_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[use_ranges[0]],0])[0]
         self.wm_hrf = glm.define_hrf([1,self.df_pars.hrf_deriv.iloc[use_ranges[1]],0])[0]
 
-    def plot_pial_wm_timecourses(self, axs=None):
+    def plot_pial_wm_timecourses(self, axs=None, tcs=None, plot_kwargs={}):
 
         if axs == None:
             _,axs = plt.subplots(figsize=(15,5))
 
         self.x_axis = np.array(list(np.arange(0,self.func.shape[-1])*self.TR))
+
+        # check for custom input
+        if not isinstance(tcs, (list)):
+            self.plot_list = [self.pial_tc,self.pial_pred,self.wm_tc,self.wm_pred]
+        else:
+            self.plot_list = tcs
+
         plotting.LazyPlot(
-            [self.pial_tc,self.pial_pred,self.wm_tc,self.wm_pred],
+            self.plot_list,
             xx=self.x_axis,
-            line_width=[0.5,2,0.5,2],
+            line_width=[0.5,3,0.5,3],
             color=[x for item in self.colors for x in repeat(item, 2)],
             axs=axs,
             x_label="time (s)",
-            y_label="response",
+            y_label="magnitude (%)",
             labels=[
                 "pial (bold)",
                 "pial (pred)",
@@ -2515,17 +2530,17 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                 "wm (pred)"],
             x_lim=[0,int(self.x_axis[-1])],
             x_ticks=list(np.arange(0,self.x_axis[-1]+40,40)),
-            label_size=16,
-            add_hline=0
-        )
+            add_hline=0,
+            **plot_kwargs
+        )   
 
-    def plot_pial_wm_prfs(self, axs=None, vf_extent=[-5,5]):
+    def plot_pial_wm_prfs(self, axs=None, vf_extent=[-5,5], plot_kwargs={}):
 
         if axs == None:
             _,axs = plt.subplots(figsize=(8,8))
 
         # make prfs
-        plotting.LazyPRF(
+        pl = plotting.LazyPRF(
             np.zeros((500,500)), 
             cmap=utils.make_binary_cm(self.colors[-1]),
             vf_extent=vf_extent,
@@ -2533,7 +2548,8 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             edge_color=None,
             shrink_factor=0.9,
             vf_only=True,
-            ax=axs)
+            ax=axs,
+            **plot_kwargs)
 
         for ix,pr in enumerate([self.pial_pars,self.wm_pars]):
             circ = plt.Circle(
@@ -2550,13 +2566,14 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             axs.annotate(
                 f"{ii}°",
                 val,
-                fontsize=self.label_size,
+                fontsize=pl.font_size,
                 xycoords="axes fraction"
             )
             
     def plot_wmpial_hrf(
         self,
-        axs=None):
+        axs=None,
+        plot_kwargs={}):
         
         if axs == None:
             _,axs = plt.subplots(figsize=(8,8))
@@ -2571,7 +2588,8 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             y_label="response",
             labels=["pial","wm"],
             x_lim=[0,25],
-            x_ticks=[0,5,10,15,20,25]
+            x_ticks=[0,5,10,15,20,25],
+            **plot_kwargs
         )
 
     def fetch_subject_hrf(
@@ -2666,7 +2684,12 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
 
         self.hrf_df = pd.concat(hrf_).set_index(["subject","t","depth"])
 
-    def plot_positional_stability(self, axs=None, code=3, add_title=True):
+    def plot_positional_stability(
+        self, 
+        axs=None, 
+        code=3, 
+        add_title=True,
+        plot_kwargs={}):
 
         if not isinstance(axs, (list,np.ndarray)):
             _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
@@ -2721,11 +2744,16 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                 lw=2)
 
             axs[ix].add_artist(sub_line)
+        
+            if "font_size" in list(plot_kwargs.keys()):
+                f_size = plot_kwargs["font_size"]
+            else:
+                f_size = 24
 
             if add_title:
                 axs[ix].set_title(
                     f"sub-0{ix+1}", 
-                    fontsize=24, 
+                    fontsize=f_size, 
                     color=self.sub_colors[ix], 
                     fontweight="bold",
                     y=1.05)
@@ -2738,11 +2766,365 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
                 xycoords="axes fraction"
             )                    
 
+    def plot_single_hrf_profile(
+        self, 
+        subject=None, 
+        code=4,
+        insets="mag", 
+        inset_axis=[0.65, 0.65, 0.3, 0.3],
+        axs=None,
+        xlim_left=5,
+        bar_kwargs={},
+        plot_kwargs={},
+        **kwargs):
+
+        if axs == None:
+            _,axs = plt.subplots(figsize=(6,6))
+
+        # get subject-specific HRFs from HRF-dataframe  
+        self.sub_hrf = utils.select_from_df(self.hrf_df, expression=f"subject = {subject}")
+
+        # parse them into list depending on the number of voxels in estimates
+        self.depths = np.unique(self.sub_hrf.reset_index()["depth"].values)
+
+        # get r>b colors
+        self.rib_colors = utils.make_between_cm(*self.rib_cols, as_list=True, N=len(self.depths))
+
+        self.hrf_list = []
+        for ii in self.depths:
+            dd = utils.select_from_df(self.sub_hrf, expression=f"depth = {ii}")['hrf'].values
+            
+            if not np.isnan(dd.sum()) or not np.all(dd==0):
+                self.hrf_list.append(dd)
+
+        # create time axis
+        self.time_axis = list(np.arange(0,self.hrf_list[0].shape[0])*self.TR)
+
+        # plot
+        self.y_max = np.amax(np.array(self.hrf_list))
+        self.y_ticks = [0,round(self.y_max/2,2),round(self.y_max,2)]
+        plotting.LazyPlot(
+            self.hrf_list,
+            axs=axs,
+            xx=self.time_axis,
+            x_label="time (s)",
+            y_label="magnitude (%)",
+            color=self.rib_colors,
+            xlim_left=xlim_left,
+            # x_lim=[0,25],
+            # x_ticks=np.arange(0,30,5),
+            y_ticks=self.y_ticks,
+            add_hline=0,
+            trim_left=False,
+            **plot_kwargs
+        )
+
+        # decide plot properties depending on which type to put on the inset axis
+        if isinstance(insets, str):
+
+            ax2 = axs.inset_axes(inset_axis)
+            self.plot_metric_bar(
+                subject=subject,
+                metric=insets,
+                axs=ax2,
+                colors=self.rib_colors,
+                bar_kwargs=bar_kwargs
+            )
+
+    def plot_metric_bar(
+        self, 
+        subject=None, 
+        metric="mag", 
+        axs=None, 
+        colors="inferno", 
+        bar_kwargs={}):
+
+        sub_met = utils.select_from_df(self.df_hrf_metrics, expression=f"subject = {subject}")
+
+        if not isinstance(axs, mpl.axes._axes.Axes):
+            _,axs = plt.subplots(figsize=(3,6))
+
+        if metric == "mag":
+            ori = "v"
+            y_lab = "magnitude (%)"
+            x_lab = "depth"
+        elif metric == "ttp":
+            ori = "h"
+            y_lab = "depth"
+            x_lab = "time-to-peak (s)"
+        elif metric == "fwhm":
+            ori = "v"
+            y_lab = "FWHM (s)"
+            x_lab = "depth"
+        else:
+            raise ValueError(f"metric must be one of 'mag','ttp', or 'fwhm'; not '{metric}'")
+
+        plotting.LazyBar(
+            data=sub_met.reset_index(),
+            x="level",
+            y=metric,
+            axs=axs,
+            palette=colors,
+            sns_ori=ori,
+            add_labels=True,
+            y_label2=y_lab,
+            x_label2=x_lab,
+            fancy=True,
+            trim_bottom=True,
+            error=None,
+            **bar_kwargs)    
+
+    def plot_metric_scatter(
+        self, 
+        subject=None, 
+        metric="mag", 
+        axs=None, 
+        order=1,
+        plot_kwargs={},
+        **kwargs):
+
+        sub_met = utils.select_from_df(self.df_hrf_metrics, expression=f"subject = {subject}").reset_index()
+
+        if not isinstance(axs, mpl.axes._axes.Axes):
+            _,axs = plt.subplots(figsize=(3,6))
+
+        if metric == "mag":
+            ori = "v"
+            y_lab = "magnitude (%)"
+            x_lab = "depth"
+        elif metric == "ttp":
+            ori = "h"
+            y_lab = "depth"
+            x_lab = "time-to-peak (s)"
+        elif metric == "fwhm":
+            ori = "v"
+            y_lab = "FWHM (s)"
+            x_lab = "depth"
+        else:
+            raise ValueError(f"metric must be one of 'mag','ttp', or 'fwhm'; not '{metric}'")
+
+        # do the curve fitting
+        tmp_ = sub_met[metric].values
+        depth_ = sub_met["depth"].values
+
+        # plot the individual points as scatter
+        rib_colors = utils.make_between_cm(*self.rib_cols, as_list=True, N=len(tmp_))
+
+        # plot scatter
+        for ix,val in enumerate(tmp_):
+            axs.plot(depth_[ix], val, 'o', color=rib_colors[ix], alpha=0.6)
+        
+        # use LazyCorr for linear fits
+        if order < 2:
+            pl = plotting.LazyCorr(
+                depth_, 
+                tmp_, 
+                axs=axs, 
+                x_ticks=[0,50,100],
+                points=False,
+                x_label="depth (%)",
+                y_label=y_lab,
+                **plot_kwargs)
+        else:
+            # lmfit for polyorder
+            cf = fitting.CurveFitter(tmp_, x=depth_, order=order, verbose=False)
+
+            # retain original y-limit
+            x_ = axs.get_xlim()
+
+            # plot upsampled fit with 95% confidence intervals as shaded error
+            pl = plotting.LazyPlot(
+                cf.y_pred_upsampled,
+                xx=cf.x_pred_upsampled,
+                error=cf.ci_upsampled,
+                axs=axs,
+                color="#cccccc",
+                x_label="depth (%)",
+                y_label=y_lab,
+                x_lim=x_,
+                x_ticks=[0,50,100],
+                **plot_kwargs)
+        
+        for pos,tag,col in zip([(0.02,0.02),(0.85,0.02)],["pial","wm"], self.rib_cols):
+            axs.annotate(
+                tag,
+                pos,
+                fontsize=pl.font_size,
+                fontweight="bold",
+                xycoords="axes fraction",
+                color=col,
+                **kwargs
+            )           
+
+    def plot_laminar_parameter(
+        self, 
+        axs=None, 
+        subject=None,
+        par="prf_size", 
+        title="prf size",
+        plot_kwargs={},
+        code=4,
+        order=2,
+        **kwargs):
+
+        if not isinstance(subject, str):
+            subject = self.subject
+            
+        if not isinstance(axs, mpl.axes._axes.Axes):
+            _,axs = plt.subplots(figsize=(6,6))
+
+        data = pd.DataFrame(utils.select_from_df(self.df_params, expression=(f"code = {code}","&",f"subject = {subject}"))[par])
+
+        if code > 3:
+            vox = np.arange(*self.subj_obj.get_ribbon(subject))
+            tmp_ = data.iloc[vox][list(data.columns)[0]].values
+        else:
+            tmp_ = data.values.squeeze()
+
+        # do the curve fitting
+        depth_ = np.linspace(0,100,tmp_.shape[0],endpoint=True)
+   
+        # plot the individual points as scatter
+        rib_colors = utils.make_between_cm(*self.rib_cols, as_list=True, N=len(tmp_))
+        for ix,val in enumerate(tmp_):
+            axs.plot(depth_[ix], val, 'o', color=rib_colors[ix], alpha=0.6)
+
+        # retain original y-limit
+        x_ = axs.get_xlim()
+
+        # use LazyCorr for linear fits
+        if order < 2:
+            pl = plotting.LazyCorr(
+                depth_, 
+                tmp_, 
+                axs=axs,
+                x_ticks=[0,50,100],
+                points=False,
+                x_label="depth (%)",
+                y_label=title,
+                x_lim=x_,
+                **plot_kwargs)
+        else:
+            # lmfit for polynomials
+            cf = fitting.CurveFitter(tmp_, x=depth_, order=order, verbose=False)
+
+            # plot upsampled fit with 95% confidence intervals as shaded error
+            pl = plotting.LazyPlot(
+                cf.y_pred_upsampled,
+                xx=cf.x_pred_upsampled,
+                error=cf.ci_upsampled,
+                axs=axs,
+                color="#cccccc",
+                x_label="depth (%)",
+                x_ticks=[0,50,100],
+                y_label=title,
+                x_lim=x_,
+                **plot_kwargs)
+
+            axs.set_xticks([0,50,100])
+
+        for pos,tag,col in zip([(0.02,0.02),(0.85,0.02)],["pial","wm"], self.rib_cols):
+            axs.annotate(
+                tag,
+                pos,
+                fontsize=pl.font_size,
+                fontweight="bold",
+                xycoords="axes fraction",
+                color=col,
+                **kwargs
+            )
+
+    def plot_laminar_stability(
+        self, 
+        axs=None, 
+        add_title=True, 
+        extent=[-5,5],
+        plot_kwargs={}):
+
+        # get subject-specific full-line fits
+        subj_pars = utils.select_from_df(self.df_params, expression=("code = 4","&",f"subject = {self.subject}"))
+        avg_pars = utils.select_from_df(self.df_params, expression=("code = 2","&",f"subject = {self.subject}"))
+
+        # get ribbon ids
+        rib_voxels = np.arange(*self.subj_obj.get_ribbon(self.subject))
+
+        # get ribbon pars
+        rib_pars = subj_pars.iloc[rib_voxels,:]
+
+        # depth
+        depth_ = np.linspace(0,100,rib_pars.shape[0],endpoint=True)
+
+        # create axes
+        if not isinstance(axs, (list,np.ndarray)):
+            _,axs = plt.subplots(ncols=len(rib_voxels), figsize=(24,5))
+        else:
+            if len(axs) != len(rib_voxels):
+                raise ValueError(f"Number of axes ({len(axs)}) must match number of voxels across ribbon ({len(rib_voxels)})")
+        
+        rib_colors = utils.make_between_cm(*self.rib_cols, as_list=True, N=len(rib_voxels))
+        for vox in range(rib_pars.shape[0]):
+
+            cm = utils.make_binary_cm(self.rib_cols[0])
+            plotting.LazyPRF(
+                np.zeros((500,500)),
+                extent,
+                ax=axs[vox],
+                cmap=cm,
+                cross_color="k",
+                edge_color=None
+            )
+
+            # plot average
+            x,y,si = avg_pars.x.values[0],avg_pars.y.values[0],avg_pars.prf_size.values[0]
+            sub_line = plt.Circle(
+                (x,y),
+                si,
+                ec="k", #sub_colors[ix],
+                fill=False,
+                lw=1)
+
+            axs[vox].add_artist(sub_line)
+
+            # plot depth pRF
+            x,y,si = rib_pars["x"][vox],rib_pars["y"][vox],rib_pars["prf_size"][vox]
+            d_line = plt.Circle(
+                (x,y),
+                si,
+                ec=rib_colors[vox],
+                fill=False,
+                alpha=1,
+                lw=2)
+
+            axs[vox].add_artist(d_line)
+
+            if "font_size" in list(plot_kwargs.keys()):
+                f_size = plot_kwargs["font_size"]
+            else:
+                f_size = 24
+
+            if add_title:
+                axs[vox].set_title(
+                    f"{round(depth_[vox],2)}%", 
+                    fontsize=f_size, 
+                    color=rib_colors[vox], 
+                    fontweight="bold",
+                    y=1.05)
+
+        for ii,val in zip([f"{extent[0]}°",f"{extent[1]}°",f"{extent[0]}°",f"{extent[1]}°"], [(0,0.51),(0.96,0.51),(0.51,0),(0.51,0.96)]):
+            axs[0].annotate(
+                ii,
+                val,
+                fontsize=self.label_size,
+                xycoords="axes fraction"
+            )     
+
     def compile_depth_figure(
         self,
         figsize=(24,15),
         insets="fwhm",
-        save_as=None):
+        save_as=None,
+        annotate_size=30,
+        plot_kwargs={}):
 
         # initiate full figure
         self.fig = plt.figure(figsize=figsize, constrained_layout="tight")
@@ -2765,15 +3147,22 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             gridspec_kw={"wspace": 0})
 
         # row 1 - pial/wm timecourses + their pRFs
-        self.plot_pial_wm_timecourses(axs=self.row1[0])
-        self.plot_pial_wm_prfs(axs=self.row1[1])
+        self.plot_pial_wm_timecourses(axs=self.row1[0], plot_kwargs=plot_kwargs)
+        self.plot_pial_wm_prfs(axs=self.row1[1], plot_kwargs=plot_kwargs)
 
         # row 2 - positional stability
-        self.plot_positional_stability(axs=self.row2, add_title=True)
+        self.plot_positional_stability(
+            axs=self.row2, 
+            add_title=True, 
+            plot_kwargs=plot_kwargs)
 
         # row 3 - response profiles
-        self.plot_hrf_profiles(insets=insets, axs=self.row3, add_title=False)
-        
+        self.plot_hrf_profiles(
+            insets=insets, 
+            axs=self.row3, 
+            add_title=False, 
+            plot_kwargs=plot_kwargs)
+
         # make annotations
         top_y = 0.97
         x_pos = 0.028
@@ -2785,7 +3174,7 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
             ax.annotate(
                 let, 
                 (x_pos,y_pos), 
-                fontsize=28, 
+                fontsize=annotate_size, 
                 xycoords="figure fraction")
 
         # panel B is slightly more annoying
@@ -2794,11 +3183,114 @@ class DepthHRF(MainFigure, prf.pRFmodelFitting):
         self.row1[1].annotate(
             "B", 
             (x_pos,top_y), 
-            fontsize=28, 
+            fontsize=annotate_size, 
             xycoords="figure fraction")
-
+                
         if isinstance(save_as, str):
             for ext in ["png","svg"]:
+
+                fname = f"{save_as}.{ext}"
+                utils.verbose(f"Writing '{fname}'", self.verbose)
+
+                self.fig.savefig(
+                    fname,
+                    bbox_inches="tight",
+                    dpi=300,
+                    facecolor="white"
+                )
+
+    def compile_depth_figure2(
+        self,
+        figsize=(24,15),
+        insets="fwhm",
+        order=[1,2],
+        save_as=None,
+        extent=[-5,5],
+        plot_pars=["r2"],
+        bar_kwargs={},
+        plot_kwargs={},
+        inset_axis=[0.65, 0.45, 0.3, 0.5],
+        annotate_size=30,
+        tcs=None,
+        **kwargs):
+
+        # initiate full figure
+        self.fig = plt.figure(figsize=figsize, constrained_layout="tight")
+        self.subfigs = self.fig.subfigures(
+            nrows=3,
+            height_ratios=[0.4,0.3,0.375])
+
+        # just timecourses
+        self.row1 = self.subfigs[0].subplots()
+
+        # 
+        self.row2 = self.subfigs[1].subplots(
+            ncols=len(np.arange(*self.subj_obj.get_ribbon(self.subject))),
+            gridspec_kw={"wspace": 0})
+
+        self.row3 = self.subfigs[2].subplots(ncols=4) #, gridspec_kw={"wspace": 0})
+
+        # row 1 - pial/wm timecourses
+        self.plot_pial_wm_timecourses(
+            axs=self.row1, 
+            tcs=tcs,
+            plot_kwargs=plot_kwargs, 
+            **kwargs)
+
+        # row 2 - positional stability
+        self.plot_laminar_stability(
+            axs=self.row2, 
+            add_title=True, 
+            extent=extent, 
+            plot_kwargs=plot_kwargs,
+            **kwargs)
+
+        # row 3 - response profiles
+        self.plot_single_hrf_profile(
+            subject=self.subject, 
+            axs=self.row3[0], 
+            xlim_left=5, 
+            insets=insets,
+            bar_kwargs=bar_kwargs,
+            inset_axis=inset_axis,
+            plot_kwargs=plot_kwargs,
+            **kwargs)
+
+        self.plot_metric_scatter(
+            subject=self.subject,
+            axs=self.row3[1],
+            metric=insets,
+            order=1,
+            plot_kwargs=plot_kwargs,
+            **kwargs)
+
+        for ix,(par,ord,ylbl) in enumerate(zip(
+            plot_pars,
+            order,
+            ["r$^2$"])):
+            self.plot_laminar_parameter(
+                subject=self.subject, 
+                axs=self.row3[2+ix], 
+                par=par, 
+                title=ylbl,
+                order=ord,
+                plot_kwargs=plot_kwargs,
+                **kwargs)
+
+        plotting.fig_annot(
+            self.fig,
+            axs=[self.row1,self.row2[0],self.row3[0],self.row3[1],self.row3[2]],
+            x0_corr=-0.8,
+            x_corr=-0.8,
+            y=[1.01,1.2,1.01,1.01,1.01],
+            fontsize=annotate_size)
+
+        # turn off final axis
+        self.row3[-1].axis("off")        
+
+        # save
+        if isinstance(save_as, str):
+            for ext in ["png","svg","pdf"]:
 
                 fname = f"{save_as}.{ext}"
                 utils.verbose(f"Writing '{fname}'", self.verbose)
