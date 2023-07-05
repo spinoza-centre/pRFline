@@ -118,7 +118,7 @@ Example
         match1=(920,3480),
         match2=(1073,3521),
         cbar_inset=[-0.15,0.1,0.02,0.8],
-        save_as=opj(fig_dir, f"sub-all_model-{model}_fig-6_desc-effect_smoothing"),
+        save_as=opj(fig_dir, f"sub-all_model-{model}_fig-s4_desc-effect_smoothing"),
         csv_file=opj(data_dir, subject, f"{subject}_ses-{ses}_model-{model}_desc-smoothing_comparison.csv"),
         wspace=0.6,
         inset=[0.7,-0.2,0.7,0.7],
