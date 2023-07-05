@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+function Usage {
+  cat <<USAGE
+
+---------------------------------------------------------------------------------------------------
+slice_to_vol
+
+This script warps the slices to the 3D volume with cross-correlation
+
+Arguments:
+  --sge         submit individual runs to cluster
+  --no-verbose  turn off verbose
+  <subject>     subject ID, e.g., sub-001 (session is hard-coded)
+
+Usage:
+  ./slice_to_vol [options] <subject>
+
+Example:
+  ./slice_to_vol sub-001                      # run in serial
+  ./slice_to_vol --sge sub-001                # run in parallel with SoGE
+  ./slice_to_vol --sge --no-verbose sub-001   # run in parallel and turn off verbose
+
+---------------------------------------------------------------------------------------------------
+
+USAGE
+  exit 1
+}
+
+sge=0
+verbose_flag="--verbose"
+while getopts :-:v: argument
+do
+  case ${argument} in
+    -)
+      case "${OPTARG}" in
+        sge)
+          sge=1
+          ;;
+        no-verbose)
+          verbose_flag=""
+          ;;
+        *)
+          if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
+            echo "Unknown option --${OPTARG}"
+            exit 1
+          fi
+          ;;
+      esac;;      
+    x)  mask=${OPTARG}
+          ;;         
+  esac
+done
+
+if [[ $# -eq 0 ]]; then
+  Usage >&2
+  exit 1
+fi
+
+# also see pRFline/pRFline/utils.py
+subID=${@:$OPTIND:1}
+if [[ ${subID} == "001" ]]; then
+  n_runs=(2 3 4 5)
+  sesID=2
+elif [[ ${subID} == "002" ]]; then
+  n_runs=(1 2 3)
+  sesID=2
+elif [[ ${subID} == "003" ]]; then
+  n_runs=(1 2 3)
+  sesID=2
+elif [[ ${subID} == "005" ]]; then
+  n_runs=(1 2 3 4 5)
+  sesID=3
+elif [[ ${subID} == "007" ]]; then
+  n_runs=(2 4)
+  sesID=3
+elif [[ ${subID} == "008" ]]; then
+  n_runs=(1 3 4)
+  sesID=2
+fi
+
+base_path=sub-${subID}/ses-${sesID}
+base=sub-${subID}_ses-${sesID}
+
+subj_dir=${DIR_DATA_HOME}/${base_path}/anat
+rec=${subj_dir}/${base}_acq-MP2RAGE_rec-motion1.nii.gz
+for run in ${n_runs[@]}; do
+
+  slc=${subj_dir}/${base}_acq-1slice_run-${run}_T1w.nii.gz
+  tmp=$(dirname ${slc})/tmp.nii.gz 
+  tmp_rs=${subj_dir}/${base}_acq-1slice_run-${run}_desc-resampled_T1w.nii.gz
+
+  cp ${slc} ${tmp}
+  itksnap -g ${tmp}
+
+  printf "Set clipping value (leave empty for default values) [ENTER]: "
+  read CLIPVALUE
+  if [[ ! -z ${CLIPVALUE} ]]; then
+    call_clipimage ${tmp} ${CLIPVALUE}
+  fi
+
+  WarpImageMultiTransform 3 ${tmp} ${tmp_rs} -R ${rec} --tightest-bounding-box --reslice-by-header
+  
+  if [[ ${sge} -eq 1 ]]; then
+    cmd="qsub -q short.q -N $(basename ${slc} .nii.gz) -o $(dirname ${tmp}) ${DIR_SCRIPTS}/bin/call_antsregistration"
+  else
+    cmd="call_antsregistration"
+  fi
+
+  # running registration
+  ${cmd} -n 2 --cc --histo ${verbose_flag} ${rec} ${tmp_rs} ${subj_dir}/${base}_from-slice_to-vol_run-${run}_desc-
+
+done
+
+if [[ -f ${tmp} ]]; then
+  rm -r ${tmp} 2>/dev/null
+fi
