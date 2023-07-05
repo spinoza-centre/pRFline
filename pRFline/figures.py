@@ -1409,6 +1409,119 @@ class WholeBrainToLine(MainFigure):
 
         return output
 
+class CurvatureInLine(MainFigure):
+
+    def __init__(
+        self,
+        img_type="ribbon",
+        plot_kwargs={},
+        **kwargs):
+        
+        self.img_type = img_type
+        self.plot_kwargs = plot_kwargs
+        self.__dict__.update(kwargs)
+        MainFigure.__init__(self, **kwargs)
+
+        # read curvature file (output of ./slice_on_surf.py)
+        self.get_curvatures()
+
+        # read contamination file (output of ./tpm_contamination.py)
+        self.get_contaminations()
+
+    def get_curvatures(self):
+
+        # define file
+        self.curv_fn = opj(self.data_dir, f"sub-all_desc-curvature_{self.img_type}.csv")
+        if not os.path.exists(self.curv_fn):
+            raise FileNotFoundError(f"Could not find file '{self.curv_fn}'; create it with './slice_on_surf.py --skip_img --{self.img_type} --stats'")
+        
+        # read
+        utils.verbose(f"Reading '{self.curv_fn}'", self.verbose)
+        self.df_curv = pd.read_csv(self.curv_fn, index_col=0)
+
+    def plot_curvature_distributions(
+        self, 
+        axs=None,
+        add_title=True):
+        
+        if not isinstance(axs, (list,np.ndarray)):
+            _,axs = plt.subplots(ncols=len(self.process_subjs), figsize=(24,5))
+        else:
+            if len(axs) != len(self.process_subjs):
+                raise ValueError(f"Number of axes ({len(axs)}) must match number of subjects ({len(self.process_subjs)})")
+                
+
+        self.fwhm_curv = []
+        for sub_ix,subject in enumerate(self.process_subjs):
+            ax = axs[sub_ix]
+            y_lbl = None
+            if sub_ix == 0:
+                y_lbl = "density"
+
+            y_data = utils.select_from_df(self.df_curv, expression=f"subject = {subject}")['curvature'].values
+            self.curv_plot = plotting.LazyHist(
+                y_data,
+                axs=ax,
+                kde=True,
+                hist=True,
+                fill=False,
+                y_label2=y_lbl,
+                x_label2="curvature (a.u.)",
+                color=self.sub_colors[sub_ix],
+                hist_kwargs={"alpha": 0.4},
+                kde_kwargs={"linewidth": 4},
+                label_size=self.label_size,
+                font_size=self.font_size
+            )
+
+            if add_title:
+                ax.set_title(
+                    f"sub-0{sub_ix+1}", 
+                    fontsize=self.font_size, 
+                    color=self.sub_colors[sub_ix], 
+                    fontweight="bold")            
+            
+            # get kde line
+            if self.curv_plot.kde:
+                self.fwhm_curv.append(fitting.FWHM(self.curv_plot.kde_[0],self.curv_plot.kde_[-1]))
+    
+    def get_contaminations(self):
+
+        # define file
+        self.cont_fn = opj(self.data_dir, "sub-all_desc-contamination.csv")
+        if not os.path.exists(self.cont_fn):
+            raise FileNotFoundError(f"Could not find file '{self.cont_fn}'; create it with './tpm_contamination.py")
+        
+        # read
+        utils.verbose(f"Reading '{self.cont_fn}'", self.verbose)
+        self.df_cont = pd.read_csv(self.cont_fn, index_col=0)
+
+    def plot_tissue_in_ribbon(self, axs=None, **kwargs):
+        
+        if not isinstance(axs, mpl.axes._axes.Axes):
+            _,axs = plt.subplots(figsize=(3,6))
+
+        self.bar_plot = plotting.LazyBar(
+            data=self.df_cont,
+            x="tissue",
+            y="percentage",
+            figsize=(3,6),
+            add_labels=True,
+            y_label2="percentage in ribbon",
+            sns_ori="v",
+            fancy=True,
+            fancy_denom=6,
+            hue=None,
+            points_hue="subject",
+            points_cmap=self.sub_colors,   
+            color="#cccccc",
+            add_points=True,
+            # points_color="k",
+            # points_alpha=0.4,
+            sns_offset=4,
+            **kwargs
+        )        
+
 class MotionEstimates(MainFigure):
 
     def __init__(
@@ -1809,7 +1922,7 @@ class MotionEstimates(MainFigure):
                     facecolor="white"
                 )
 
-class AnatomicalPrecision(MotionEstimates):
+class AnatomicalPrecision(MotionEstimates, CurvatureInLine):
 
     def __init__(
         self,
@@ -1818,7 +1931,8 @@ class AnatomicalPrecision(MotionEstimates):
 
         self.reg_csv = reg_csv
         self.__dict__.update(kwargs)
-        super().__init__(**kwargs)
+        MotionEstimates.__init__(self, **kwargs)
+        CurvatureInLine.__init__(self, **kwargs)
 
         if isinstance(self.reg_csv, str):
             self.df_reg = pd.read_csv(self.reg_csv)
@@ -1840,7 +1954,7 @@ class AnatomicalPrecision(MotionEstimates):
             ax = axs[sub_ix]
             y_lbl = None
             if sub_ix == 0:
-                y_lbl = "count"
+                y_lbl = "density"
 
             y_data = utils.select_from_df(self.df_reg, expression=f"subject = {subject}")['euclidean'].values
             self.reg_plot = plotting.LazyHist(
@@ -1866,7 +1980,7 @@ class AnatomicalPrecision(MotionEstimates):
                     fontweight="bold")            
             
             # get kde line
-            self.fwhm_objs.append(fitting.FWHM(self.reg_plot.kde[0],self.reg_plot.kde[-1]))
+            self.fwhm_objs.append(fitting.FWHM(self.reg_plot.kde_[0],self.reg_plot.kde_[-1]))
 
     def plot_spread_as_bar(self, axs=None):
         
@@ -2096,7 +2210,7 @@ class AnatomicalPrecision(MotionEstimates):
         **kwargs):
 
         # initialize figure
-        self.fig = plt.figure(figsize=(24,19))
+        self.fig = plt.figure(figsize=(24,24))
         self.sf0 = self.fig.subfigures(
             nrows=2, 
             height_ratios=[0.5,1],
@@ -2115,7 +2229,10 @@ class AnatomicalPrecision(MotionEstimates):
         self.gssmall = self.sf0[0].add_gridspec(ncols=2, nrows=3, width_ratios=[0.1,0.75])
         ax2 = self.sf0[0].add_subplot(self.gssmall[0])
 
-        self.sf0_ax1 = self.sf0[1].subplots(ncols=len(self.process_subjs), nrows=3, gridspec_kw={"wspace": 0.2, "hspace": 0.5})
+        self.sf0_ax1 = self.sf0[1].subplots(
+            ncols=len(self.process_subjs), 
+            nrows=4, 
+            gridspec_kw={"wspace": 0.2, "hspace": 0.5})
 
         plt.tight_layout()
         self.plot_reg_overview(
@@ -2125,38 +2242,22 @@ class AnatomicalPrecision(MotionEstimates):
         # add the individual elements to their axes
         self.plot_smoothed_target(axs=ax2, **kwargs)
         self.plot_beam_on_surface(axs=self.sf0_ax1[0,:])
-        self.plot_individual_distributions(axs=self.sf0_ax1[1,:], add_title=False)
-        self.plot_run_to_run_euclidean_as_lines(axs=self.sf0_ax1[2,:], add_title=False)
+        self.plot_curvature_distributions(axs=self.sf0_ax1[1,:], add_title=False)
+        self.plot_individual_distributions(axs=self.sf0_ax1[2,:], add_title=False)
+        self.plot_run_to_run_euclidean_as_lines(axs=self.sf0_ax1[3,:], add_title=False)
 
         # make the arrow
         xyA = [1150,800]
         xyB = [250,800]
-        # arrow = patches.ConnectionPatch(
-        #     xyA,
-        #     xyB,
-        #     coordsA=self.axs[0].transData,
-        #     coordsB=self.axs[1].transData,
-        #     color="#cccccc",
-        #     arrowstyle="-| >",  # "normal" arrow
-        #     mutation_scale=25,  # controls arrow head size
-        #     linewidth=1,
-        # )
 
-        # arrow_axis = self.axs[0].inset_axes([0.7,0.4,0.45,0.05])
-        # arrow_axis.add_artist(arrow)
-
-        # make annotations
-        top_y = 0.98
-        for y_pos,let,ax in zip(
-            [top_y,0.63,0.41,0.2],
-            ["A","C","D","E"],
-            [ax2,self.sf0_ax1[0,0],self.sf0_ax1[1,0],self.sf0_ax1[2,0]]):
-
-            ax.annotate(
-                let, 
-                (0,y_pos), 
-                fontsize=annot_size, 
-                xycoords="figure fraction")
+        annotate_axis = [ax2,self.axs[0]]+[self.sf0_ax1[i,0] for i in range(self.sf0_ax1.shape[0])]        
+        plotting.fig_annot(
+            self.fig,
+            axs=annotate_axis,
+            x0_corr=-0.8,
+            x_corr=-0.8,
+            y=[1.01,1.35,1.2,1.01,1.01,1.01],
+            fontsize=annot_size)
 
         y = 0.98
         for ax,ses,x in zip(
@@ -2189,15 +2290,6 @@ class AnatomicalPrecision(MotionEstimates):
                 transform=ax.transAxes)
 
             ax.add_artist(line)
-
-        # panel B is slightly more annoying
-        bbox = self.axs[0].get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
-        x_pos = self.axs[0].get_position().x0 + (bbox.width*0.005)
-        self.axs[0].annotate(
-            "B", 
-            (x_pos,top_y), 
-            fontsize=annot_size, 
-            xycoords="figure fraction")        
 
         # save figure
         if isinstance(save_as, str):

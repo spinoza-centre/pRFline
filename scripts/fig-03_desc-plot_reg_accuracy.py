@@ -83,7 +83,7 @@ Example
     
     im4.compile_reg_figure(
         inset_axis=[0.7,-2.3,2.5,2.5],
-        save_as=opj(fig_dir, f"sub-all_model-{model}_fig-3_desc-anatomical_precision"))
+        save_as=opj(fig_dir, f"sub-all_model-{model}_fig-3_desc-anatomical_precision2"))
 
 if __name__ == "__main__":
     main(sys.argv[1:])

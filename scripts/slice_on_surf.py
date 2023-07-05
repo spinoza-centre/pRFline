@@ -8,6 +8,7 @@ from pRFline.utils import SubjectsDict
 from linescanning import utils, pycortex, optimal
 import time
 import numpy as np
+import pandas as pd
 opj = os.path.join
 opd = os.path.dirname
 
@@ -19,16 +20,16 @@ Project the nominal line image (or any other slice image for that matter) to the
 
 Parameters
 ----------
--s|--subject        process specific subject. Default = "all"
--v|--no_verbose     turn off verbose (best to have verbose on by default)
--t|--interp         interpolation method. Use '-t gen' for masks, '-t lin' for scalar images. See also call_antsapplytransforms for more options
--w|--warp           registration file (defaults for derivatives/pycortex/<subject>/transform/*from-fs_to-ses<ses>)
--o|--out            basename for output file
---recon             project recon image (default is beam-image)
---webshow           open pycortex in browser to create images (also saves them). Default is False
---no_target         don't add the target to the vertex object (default is True)
---plot              make figure of all subjects (default is False)
---no_verbose        turn off verbose (default is verbose=True)
+    -i|--img            image type (e.g., 'ribbon', 'slice', or 'beam'). Default = 'beam'
+    -s|--subject        process specific subject. Default = "all"
+    -v|--no_verbose     turn off verbose (best to have verbose on by default)
+    -t|--interp         interpolation method. Use '-t gen' for masks, '-t lin' for scalar images. See also call_antsapplytransforms for more options
+    --recon             project recon image (default is beam-image)
+    --webshow           open pycortex in browser to create images (also saves them). Default is False
+    --no_target         don't add the target to the vertex object (default is True)
+    --plot              make figure of all subjects (default is False)
+    --no_verbose        turn off verbose (default is verbose=True)
+    --stats             get curvature values from ribbon vertices
 
 Returns
 ----------
@@ -48,12 +49,15 @@ Example
     interp = "gen"
     warp = None
     add_target = True
-    output = None
+    output_dir = None
     overwrite = False
     skip_img = False
+    warp = None
+    webshow = False
+    curve_stats = False
 
     try:
-        opts = getopt.getopt(argv,"hm:v:k:i:o:t:w:s:",["help", "subject=", "no_verbose", "webshow","plot", "recon", "in=", "interp=", "warp=", "out=", "ow", "overwite", "skip_img"])[0]
+        opts = getopt.getopt(argv,"hm:v:k:i:o:t:w:s:",["img=", "help", "subject=", "no_verbose", "webshow","plot", "recon", "in=", "interp=", "warp=", "out=", "ow", "overwrite", "skip_img", "stats"])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?", flush=True)
         print(main.__doc__, flush=True)
@@ -67,12 +71,10 @@ Example
             subject = arg
         elif opt in ("-t", "--interp"):
             interp = arg            
+        elif opt in ("-i", "--img"):
+            img_type = arg                 
         elif opt in ("-v", "--no_verbose"):
             verbose = False
-        elif opt in ("-w", "--warp"):
-            verbose = False    
-        elif opt in ("-o", "--out"):
-            output = arg
         elif opt in ("--plot"):
             full_plot = True
         elif opt in ("--recon"):
@@ -81,8 +83,12 @@ Example
             add_target = False
         elif opt in ("--skip_img"):
             skip_img = True            
+        elif opt in ("--webshow"):
+            webshow = True          
+        elif opt in ("--stats"):
+            curve_stats = True                      
         elif opt in ("--overwrite", "-o", "--ow"):
-            overwrite = True               
+            overwrite = True
 
     utils.verbose("\nslice_on_surf.py", verbose)
 
@@ -109,6 +115,11 @@ Example
         fig,axs = plt.subplots(ncols=len(process_list), figsize=(30,5))
         sub_colors = sns.color_palette(cmap_subj, len(process_list))
 
+    if curve_stats:
+        df_curv = []
+        data_dir = opj(opd(opd(pRFline.__file__)), "data")
+        fn_curv = opj(data_dir, f"sub-all_desc-curvature_{img_type}.csv")
+        
     for ix,subject in enumerate(process_list):
 
         utils.verbose(f"\n**************************************** Processing {subject} ***************************************", verbose)
@@ -119,6 +130,8 @@ Example
         ref = opj(base_dir, "derivatives", "freesurfer", subject, "mri", "orig.nii.gz")
         if not os.path.exists(ref):
             raise FileNotFoundError(f"Could not find file '{ref}'")
+        
+        output_dir = os.path.dirname(ref)
 
         utils.verbose(f"Reference: '{ref}'", verbose)
         vol2fs_pref = f"{subject}_ses-{ses}_task-pRF"
@@ -131,7 +144,7 @@ Example
                 f"{subject}_ses-{ses}_task-pRF_run-1_bold.nii.gz"
             )
 
-            output = opj(os.path.dirname(ref), f"{subject}_ses-{ses}_task-pRF_space-fsnative_run-1_bold.nii.gz")
+            output = opj(output_dir, f"{subject}_ses-{ses}_task-pRF_space-fsnative_run-1_bold.nii.gz")
             vol2fs_suff = "run-1_bold"
 
         elif img_type == "recon":
@@ -146,22 +159,36 @@ Example
             image = utils.get_file_from_substring(["run-1", "desc-recon", ".nii.gz"], src_dir)
             interp = "lin"
             vol2fs_suff = "run-1_desc-recon"
+
+        elif img_type == "ribbon":
+            src_dir = opj(
+                base_dir,
+                subject,
+                f"ses-{ses}",
+                "func"
+                )
+
+            image = utils.get_file_from_substring(["run-1", "desc-ribbon", ".nii.gz"], src_dir)
+            interp = "mul"
+            vol2fs_suff = "run-1_desc-ribbon"            
         else:
             raise TypeError(f"Image type must be 'slice' or 'recon'; not '{img_type}'")
 
-        output_npy = opj(os.path.dirname(output), f"{vol2fs_pref}_space-fsnative_hemi-LR_{vol2fs_suff}.npy")
+        # define volumetric output
+        output = opj(output_dir, f"{vol2fs_pref}_space-fsnative_{vol2fs_suff}.nii.gz")
+
+        # define surface output
+        output_npy = opj(os.path.dirname(output), f"{subject}_ses-{ses}_task-pRF_space-fsnative_hemi-LR_{vol2fs_suff}.npy")
         if not os.path.exists(output_npy) or overwrite:
-            # check if image is still not a string
             if not isinstance(image, str):
                 raise ValueError("Please specify an input file with '-i'/'--in' or '--recon'")
             utils.verbose(f"Input image: '{image}'", verbose)
 
             # get the registration from session to FS
-            if not isinstance(warp, str):
-                warp = utils.get_file_from_substring(
-                    [f"from-fs_to-ses{ses}", "genaff.mat"],
-                    opj(base_dir, "derivatives", "pycortex", subject, "transforms")
-                )
+            warp = utils.get_file_from_substring(
+                [f"from-fs_to-ses{ses}", "genaff.mat"],
+                opj(base_dir, "derivatives", "pycortex", subject, "transforms")
+            )
             utils.verbose(f"Warp file: '{warp}'", verbose)
 
             if not isinstance(output, str):
@@ -184,91 +211,93 @@ Example
             utils.verbose(f"Reading '{output_npy}'", verbose)
 
         data = np.load(output_npy)
-        if add_target:
-            data[subj_obj.get_target(subject)] = np.amax(data)*10
-        data[data<1] = np.nan
+        if webshow or full_plot:
+            if add_target:
+                data[subj_obj.get_target(subject)] = np.amax(data)*10
+            data[data<1] = np.nan
 
-        alpha_mask = np.zeros_like(data)
-        alpha_mask[data>0] = 1
-        utils.verbose(f"Creating vertex object of '{output_npy}'", verbose)
-        vert = pycortex.Vertex2D_fix(
-            data,
-            alpha_mask,
-            subject,
-            "seismic",
-            vmin=0,
-            vmax=2,
-            vmin2=0,
-            vmax2=1)
+            utils.verbose(f"Creating vertex object of '{output_npy}'", verbose)
+            vert = pycortex.Vertex2D_fix(
+                data,
+                subject=subject,
+                cmap="seismic",
+                vmin1=0,
+                vmax1=2)
 
 
-        # smooth
-        base = f"{subject}_ses-{ses}"
-        target_npy = opj(fig_dir,subject, f"{base}_desc-target_on_surf.npy")
-        if not os.path.exists(target_npy) or overwrite:
-            utils.verbose(f"Creating smoothed vertex object of target vertex", verbose)
-            # make smoothed version of target vertex
-            target_data = np.zeros_like(data)
-            target_data[subj_obj.get_target(subject)] = 1
-            surf = optimal.SurfaceCalc(subject=subject)
-            target_data[:surf.lh_surf_data[0].shape[0]] = surf.lh_surf.smooth(target_data[:surf.lh_surf_data[0].shape[0]],3,3)
-            target_data /= target_data.max()
-            np.save(target_npy, target_data)
-        else:
-            utils.verbose(f"Reading '{target_npy}'", verbose)
-            target_data = np.load(target_npy)
+            # smooth
+            base = f"{subject}_ses-{ses}"
+            target_npy = opj(fig_dir,subject, f"{base}_desc-target_on_surf.npy")
+            if not os.path.exists(target_npy) or overwrite:
+                utils.verbose(f"Creating smoothed vertex object of target vertex", verbose)
+                # make smoothed version of target vertex
+                target_data = np.zeros_like(data)
+                target_data[subj_obj.get_target(subject)] = 1
+                surf = optimal.SurfaceCalc(subject=subject)
+                target_data[:surf.lh_surf_data[0].shape[0]] = surf.lh_surf.smooth(target_data[:surf.lh_surf_data[0].shape[0]],3,3)
+                target_data /= target_data.max()
+                np.save(target_npy, target_data)
+            else:
+                utils.verbose(f"Reading '{target_npy}'", verbose)
+                target_data = np.load(target_npy)
 
-        alpha = np.zeros_like(target_data)
-        alpha[target_data>0] = 1
-        target_data[target_data<0.1] = np.nan
-        target_v = pycortex.Vertex2D_fix(
-            target_data,
-            alpha,
-            subject,
-            "magma",
-            vmin=0,
-            vmax=1,
-            vmin2=0,
-            vmax2=1)
+            target_data[target_data<0.1] = np.nan
+            target_v = pycortex.Vertex2D_fix(
+                target_data,
+                subject=subject,
+                cmap="magma")
 
-        # smooth
+            # smooth
 
-        # create data dict
-        data_d = {
-            "slice_on_surf": vert,
-            "target_on_surf": target_v
-        }
+            # create data dict
+            data_d = {
+                f"{img_type}_on_surf": vert,
+                "target_on_surf": target_v
+            }
 
-        # save image if not exists or if overwrite==True
-        data_keys = list(data_d.keys())
-        fn_image = opj(fig_dir, subject, f"{base}_desc-{data_keys[0]}.png")
+            # save image if not exists or if overwrite==True
+            data_keys = list(data_d.keys())
+            fn_image = opj(fig_dir, subject, f"{base}_desc-{data_keys[0]}.png")
 
-        # initialize saving object (also opens the webviewers)
-        pyc_save = pycortex.SavePycortexViews(
-            data_d,
-            subject=subject,
-            fig_dir=opj(fig_dir,subject),
-            zoom=True,
-            base_name=base)
+            # initialize saving object (also opens the webviewers)
+            pyc_save = pycortex.SavePycortexViews(
+                data_d,
+                subject=subject,
+                fig_dir=opj(fig_dir,subject),
+                zoom=True,
+                base_name=base)
 
-        if not skip_img:
-            time.sleep(5)
-            pyc_save.save_all()
-    
-        if full_plot:
-            ax = axs[ix]
+            if not skip_img:
+                time.sleep(5)
+                pyc_save.save_all()
+        
+            if full_plot:
+                ax = axs[ix]
 
-            # add image to axis
-            im = imageio.imread(fn_image)
-            ax.imshow(im)
-            ax.set_title(
-                subject, 
-                fontsize=18, 
-                fontname="Montserrat",
-                color=sub_colors[ix], 
-                fontweight="bold")
+                # add image to axis
+                im = imageio.imread(fn_image)
+                ax.imshow(im)
+                ax.set_title(
+                    subject, 
+                    fontsize=18, 
+                    fontname="Montserrat",
+                    color=sub_colors[ix], 
+                    fontweight="bold")
 
-            ax.axis('off')
+                ax.axis('off')
+
+        if curve_stats:
+
+            utils.verbose(f"Extracting curvature information..", verbose)
+            # get the surface information for the curvature
+            surfs = optimal.SurfaceCalc(subject=subject, fs_dir=opj(base_dir, "derivatives", "freesurfer"))
+
+            # get curvature values in mask
+            curvs = surfs.curvature.data[data>0]
+
+            df = pd.DataFrame({"curvature": curvs})
+            df["subject"] = subject
+            df_curv.append(df)
 
     if full_plot:
         fname = opj(fig_dir, f"sub-all_desc-{data_keys[0]}")
@@ -280,6 +309,11 @@ Example
                 dpi=300,
                 facecolor="white"
             )
+
+    if curve_stats:
+        if len(df_curv) > 1:
+            utils.verbose(f"Writing {fn_curv}", verbose)
+            df_curv = pd.concat(df_curv).to_csv(fn_curv)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
