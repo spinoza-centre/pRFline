@@ -1466,7 +1466,7 @@ class CurvatureInLine(MainFigure):
                 hist=True,
                 fill=False,
                 y_label2=y_lbl,
-                x_label2="curvature (a.u.)",
+                x_label2="curvature (1/mm)",
                 color=self.sub_colors[sub_ix],
                 hist_kwargs={"alpha": 0.4},
                 kde_kwargs={"linewidth": 4},
@@ -2242,9 +2242,9 @@ class AnatomicalPrecision(MotionEstimates, CurvatureInLine):
         # add the individual elements to their axes
         self.plot_smoothed_target(axs=ax2, **kwargs)
         self.plot_beam_on_surface(axs=self.sf0_ax1[0,:])
-        self.plot_curvature_distributions(axs=self.sf0_ax1[1,:], add_title=False)
-        self.plot_individual_distributions(axs=self.sf0_ax1[2,:], add_title=False)
-        self.plot_run_to_run_euclidean_as_lines(axs=self.sf0_ax1[3,:], add_title=False)
+        self.plot_individual_distributions(axs=self.sf0_ax1[1,:], add_title=False)
+        self.plot_run_to_run_euclidean_as_lines(axs=self.sf0_ax1[2,:], add_title=False)
+        self.plot_curvature_distributions(axs=self.sf0_ax1[3,:], add_title=False)
 
         # make the arrow
         xyA = [1150,800]
