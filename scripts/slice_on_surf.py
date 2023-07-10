@@ -293,7 +293,7 @@ Example
             surfs = optimal.SurfaceCalc(subject=subject, fs_dir=opj(base_dir, "derivatives", "freesurfer"))
 
             # get curvature values in mask
-            curvs = surfs.curvature.data[data>0]
+            curvs = surfs.surf_sm[data>0]
 
             df = pd.DataFrame({"curvature": curvs})
             df["subject"] = subject
