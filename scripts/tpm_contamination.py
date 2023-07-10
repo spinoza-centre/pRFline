@@ -22,6 +22,9 @@ Parameters
 ----------
     -s|--subject        process specific subject. Default = "all"
     -v|--no_verbose     turn off verbose (best to have verbose on by default)
+    -o|--ow             overwrite file
+    --tpm <gm,wm,csf>   list of values annotating the value of tissues in segmentation files
+    --seg <file>        custom tissue probability segmentation file. Defaults to the CRUISE image in slice-space that is created during aCompCor. Can be a single file is `subject` is specified, but can also be a comma-separated list denoting the custom files for all subjects
 
 Returns
 ----------
@@ -36,9 +39,11 @@ Example
     verbose = True
     subject = "all"
     overwrite = False
+    tpm_order = [1,2,0] # order = GM,WM,CSF
+    cruise_files = None
 
     try:
-        opts = getopt.getopt(argv,"hos:v:",["subject=", "no_verbose", "ow", "overwrite"])[0]
+        opts = getopt.getopt(argv,"hos:v:",["subject=", "no_verbose", "ow", "overwrite","tpm=","seg="])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?", flush=True)
         print(main.__doc__, flush=True)
@@ -54,6 +59,14 @@ Example
             verbose = False  
         elif opt in ("--overwrite", "-o", "--ow"):
             overwrite = True
+        elif opt in ("--tpm"):
+            tpm_order = arg
+            if "," in tpm_order:
+                tpm_order = [int(i) for i in utils.string2list(tpm_order)]
+        elif opt in ("--seg"):
+            cruise_files = arg
+            if "," in cruise_files:
+                cruise_files = utils.string2list(cruise_files)
 
     utils.verbose("\ntpm_contamination.py", verbose)
 
@@ -98,18 +111,26 @@ Example
                 rib_voxels = nb.load(image).get_fdata()
 
             # find cruise files
-            cruise_dir = opj(base_dir, "derivatives", "nighres", subject, f"ses-{ses}")
-            cruise_files = utils.get_file_from_substring(["run-1", "cruise_cortex"], cruise_dir)
+            if not isinstance(cruise_files, (list,str)):
+                cruise_dir = opj(base_dir, "derivatives", "nighres", subject, f"ses-{ses}")
+                use_cruise = utils.get_file_from_substring(["run-1", "cruise_cortex"], cruise_dir)
             
-            if isinstance(cruise_files, str):
-                cruise_files = [cruise_files]
-            
+                if isinstance(use_cruise, str):
+                    use_cruise = [use_cruise]
+            else:
+                if isinstance(cruise_files, list):
+                    use_cruise = cruise_files[ix]
+                else:
+                    use_cruise = cruise_files
+                
+                use_cruise = [use_cruise]
+
             # loop through runs
             subj_df = {}
             for el in ["run","percentage","tissue","code"]:
                 subj_df[el] = []
 
-            for ix,crs in enumerate(cruise_files):
+            for ix,crs in enumerate(use_cruise):
 
                 utils.verbose(f" Dealing with {crs}", verbose)
                 
@@ -134,14 +155,17 @@ Example
 
                 # get nr of occurance relative to total
                 total = rib_seg.size
-                gm = np.count_nonzero(rib_seg==1)
-                wm = np.count_nonzero(rib_seg==2)
-                csf = np.count_nonzero(rib_seg==0)
+                gm = np.count_nonzero(rib_seg==tpm_order[0])
+                wm = np.count_nonzero(rib_seg==tpm_order[1])
+                csf = np.count_nonzero(rib_seg==tpm_order[2])
                 
                 # make percentage
                 tpm_gm = (gm/total)*100
                 tpm_wm = (wm/total)*100
                 tpm_csf = (csf/total)*100
+
+                for tp,tag in zip([tpm_gm,tpm_wm,tpm_csf],["GM","WM","CSF"]):
+                    utils.verbose(f" {tag}: {round(tp,2)}%", verbose)
 
                 # store in df
                 for code,key,val in zip([0,1,2],["gm","wm","csf"],[tpm_gm,tpm_wm,tpm_csf]):
@@ -153,6 +177,10 @@ Example
             subj_df = pd.DataFrame(subj_df)
             subj_df["subject"] = subject
             df_cont.append(subj_df)
+
+    else:
+        if os.path.exists(fn_cont):
+            utils.verbose(f"File '{fn_cont}' exists, use '--ow' to overwrite or show output for single subject", True)
 
     if len(df_cont) > 1:
         utils.verbose(f"Writing '{fn_cont}'", verbose)
