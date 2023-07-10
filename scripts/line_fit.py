@@ -11,6 +11,7 @@ import sys, getopt
 from bids import BIDSLayout
 from pRFline import fitting,utils
 from linescanning.utils import get_file_from_substring, string2list
+import numpy as np
 import yaml
 opj = os.path.join
 
@@ -29,44 +30,48 @@ def main(argv):
 
     Parameters
     ----------
-    -b|--bids_dir <bids_dir>        path where 'func' and 'anat' folders live
-    -o|--output_dir <output_dir>    output directory + basename for output; some stuff about model type, stage, 
-                                    and parameter type will be appended
-    -l|--log_dir <log_dir>          directory that contains the "Screenshot"-directory to create the design matrix
-    -r|--run <run ID>               run identifier in case we don't want to average across runs and fit the pRFs 
-                                    for individual runs
-    -i|--n_iter <iterations>        the experiment consists of one set of 8 sweeps (1 iteration) that can be 
-                                    repeated multiple times. We can average these iterations by specifying how many iterations we used. By default, the number of iterations will be read from the log-file from ExpTools, which will always be 1 given that we use the directory that has the screenshots. For that, we only need 1 iterations. With this extra flag you can specify how many iterations to consider.
-    --rsq <float>                   r2-threshold to use during pRF-fitting. Parameters of voxels < threshold will 
-                                    be set to 0
-    --ses_trafo <file>              transformation mapping ses-1 to the closest partial anatomy prior to the 
-                                    corresponding slice of the line-scanning acquisition
-    -h|--help                       print this information
-    -q|--qa|--no-fit                do quality control, not full fitting; plots will be stored in the 'anat' 
-                                    folder. Stop *before* creation of design matrix (see `--dm` for quitting process *after* design matrix)
-    --filter_pca <float>            cutoff frequency for highpass filtering of PCA components. This procedure can 
-                                    ensure that task-related frequencies in the PCA-components do not get removed
-    --dm                            stop process after making the design matrix. One step further compared to `-q|
-                                    --qa` or `--no-fit` which stop *before* the creation of design matrix
-    --hrf                           fit the HRF with the pRF-parameters as implemented in `prfpy`    
-    -g                              run model fitter with gray matter voxels only (based on the average tissue 
-                                    probabilities across runs)
-    --ribbon                        Include only voxels in this range. Voxels are read from `class:pRFline.utils. 
-                                    SubjectsDict()`
-    -v|--verbose                    turn on verbose
-    --feed_avg                      Used in combination with `--ribbon`. Tells the fitter to fit stuff first on 
-                                    the average of the ribbon, then feed that into individual fitting of ribbon voxels
-    --fix <indices>                 Fix certain parameters. Generally used in combination with `--ribbon` and 
-                                    `--feed_avg`, where you can fix parameters from the average fit. These must be comma-separated values reflecting indices of the parameter space. E.g., 'x'=0, 'y'=1, 'size'=2, etc. Note that you must know which parameters corresponds to which index for this to succeed. 
-    --no_grid                       Don't save grid-parameters; can save clogging up of directories. Default = 
-                                    False
-    --ow|--overwrite                Overwrite existing files; otherwise files found along the way will be inserted 
-                                    in their respective spots
-    --lbgfs|--bgfs                  Use L-BGFS minimization, rather than trust-constraint
-    --norm                          Fit normalization parameters [default]
-    --gauss                         Fit Gaussian parameters
-    --dog                           Fit Difference-of-Gaussian parameters
-    --css                           Fit CSS parameters
+        -b|--bids_dir <bids_dir>        path where 'func' and 'anat' folders live
+        -o|--output_dir <output_dir>    output directory + basename for output; some stuff about model type, stage, 
+                                        and parameter type will be appended
+        -l|--log_dir <log_dir>          directory that contains the "Screenshot"-directory to create the design matrix
+        -r|--run <run ID>               run identifier in case we don't want to average across runs and fit the pRFs 
+                                        for individual runs
+        -i|--n_iter <iterations>        the experiment consists of one set of 8 sweeps (1 iteration) that can be 
+                                        repeated multiple times. We can average these iterations by specifying how many iterations we used. By default, the number of iterations will be read from the log-file from ExpTools, which will always be 1 given that we use the directory that has the screenshots. For that, we only need 1 iterations. With this extra flag you can specify how many iterations to consider.
+        --rsq <float>                   r2-threshold to use during pRF-fitting. Parameters of voxels < threshold will 
+                                        be set to 0
+        --save_tc <file>                Filename to save the averaged dataframe as is, without modeling
+        --ses_trafo <file>              transformation mapping ses-1 to the closest partial anatomy prior to the 
+                                        corresponding slice of the line-scanning acquisition
+        --filter_pca <float>            cutoff frequency for highpass filtering of PCA components. This procedure can 
+                                        ensure that task-related frequencies in the PCA-components do not get removed
+        --fix <indices>                 Fix certain parameters. Generally used in combination with `--ribbon` and 
+                                        `--feed_avg`, where you can fix parameters from the average fit. These must be comma-separated values reflecting indices of the parameter space. E.g., 'x'=0, 'y'=1, 'size'=2, etc. Note that you must know which parameters corresponds to which index for this to succeed. 
+
+    Options
+    ----------
+        -h|--help                       print this information
+        -q|--qa|--no-fit                do quality control, not full fitting; plots will be stored in the 'anat' 
+                                        folder. Stop *before* creation of design matrix (see `--dm` for quitting process *after* design matrix)
+        --dm                            stop process after making the design matrix. One step further compared to `-q|
+                                        --qa` or `--no-fit` which stop *before* the creation of design matrix
+        --hrf                           fit the HRF with the pRF-parameters as implemented in `prfpy`    
+        -g                              run model fitter with gray matter voxels only (based on the average tissue 
+                                        probabilities across runs)
+        --ribbon                        Include only voxels in this range. Voxels are read from `class:pRFline.utils. 
+                                        SubjectsDict()`
+        -v|--verbose                    turn on verbose
+        --feed_avg                      Used in combination with `--ribbon`. Tells the fitter to fit stuff first on 
+                                        the average of the ribbon, then feed that into individual fitting of ribbon voxels
+        --no_grid                       Don't save grid-parameters; can save clogging up of directories. Default = 
+                                        False
+        --ow|--overwrite                Overwrite existing files; otherwise files found along the way will be inserted 
+                                        in their respective spots
+        --lbgfs|--bgfs                  Use L-BGFS minimization, rather than trust-constraint
+        --norm                          Fit normalization parameters [default]
+        --gauss                         Fit Gaussian parameters
+        --dog                           Fit Difference-of-Gaussian parameters
+        --css                           Fit CSS parameters
 
     Returns
     ----------
@@ -132,10 +137,11 @@ def main(argv):
     window_length   = None
     poly_order      = None
     constr          = "tc"
+    save_tc         = None
 
     # long options without argument: https://stackoverflow.com/a/54170513
     try:
-        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:s:",["help", "bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no_fit", "tr=", "ribbon", "fix=", "feed_avg", "save_grid", "overwrite", "ow", "gauss", "norm", "css", "dog", "full_design", "trim_end=", "keep_baseline", "shift=","lp","lbgfs","bgfs"])[0]
+        opts = getopt.getopt(argv,"nqgvh:b:d:r:o:f:l:i:s:",["help", "bids_dir=", "n_iter=", "lowpass", "ses_trafo=", "output_dir=", "log_dir=", "filter_pca=", "rsq=", "run=", "hrf", "no_report", "verbose", "no_acompcor", "qa", "n_pix=", "dm", "no_fit", "tr=", "ribbon", "fix=", "feed_avg", "save_grid", "overwrite", "ow", "gauss", "norm", "css", "dog", "full_design", "trim_end=", "keep_baseline", "shift=","lp","lbgfs","bgfs","save_tc="])[0]
     except getopt.GetoptError:
         print("ERROR while handling arguments.. Did you specify an 'illegal' argument..?")
         print(main.__doc__)
@@ -216,6 +222,8 @@ def main(argv):
             model = "css"
         elif opt in ("--dog"):
             model = "dog"
+        elif opt in ("--save_tc"):
+            save_tc = os.path.abspath(arg)       
         elif opt in ("--full_design"):
             full_design = True
         elif opt in ("--trim_end"):
@@ -348,7 +356,7 @@ def main(argv):
         block_trials    = int(sweep_trials*2 + rest_trials)
         part_trials     = int(block_trials*2 + rest_trials*2)
         iter_trials     = int(part_trials*design.get('stim_repetitions'))
-        t_r             = design.get('repetition_time')
+        # t_r             = design.get('repetition_time')
         iter_duration   = iter_trials*design.get('stim_duration')
     else:
         # new version
@@ -425,8 +433,17 @@ def main(argv):
         use_grid_bounds=use_bounds)
 
     # fit
-    if not qa:
+    if not qa and not isinstance(save_tc, str):
         model_fit.fit()
+    
+    # save timecourse array as is
+    if isinstance(save_tc, str):
+        
+        # force numpy extension
+        if not save_tc.endswith(".npy"):
+            save_tc += ".npy"
+        
+        np.save(save_tc, model_fit.data_for_fitter)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
