@@ -176,6 +176,14 @@ class FitpRFs(dataset.Dataset):
         if self.design_only:
             self.prepare_design()
 
+        # use data with/without baseline
+        if self.strip_baseline:
+            utils.verbose("Using data WITHOUT baseline for fitting", self.verbose)
+            self.data_for_fitter = self.avg_iters_no_baseline.copy()
+        else:
+            utils.verbose("Using data WITH baseline for fitting", self.verbose)
+            self.data_for_fitter = self.avg_iters_baseline.copy()
+
     def fit(self, **kwargs):
 
         counter = 1
@@ -186,14 +194,6 @@ class FitpRFs(dataset.Dataset):
 
         utils.verbose("\n---------------------------------------------------------------------------------------------------", self.verbose)
         utils.verbose(f"STAGE {counter} [{txt}]", self.verbose)
-
-        # use data with/without baseline
-        if self.strip_baseline:
-            utils.verbose("Using data WITHOUT baseline for fitting", self.verbose)
-            self.data_for_fitter = self.avg_iters_no_baseline.copy()
-        else:
-            utils.verbose("Using data WITH baseline for fitting", self.verbose)
-            self.data_for_fitter = self.avg_iters_baseline.copy()
 
         # this option tells the fitter to fit on the average across depth
         fix_pars = None
@@ -390,7 +390,7 @@ class FitpRFs(dataset.Dataset):
             self.h5_bids += "desc-preproc_bold.h5"
 
         self.h5_file = opj(os.environ.get('DIR_DATA_DERIV'), "lsprep", self.subject, self.h5_bids)
-        if os.path.exists(self.h5_file):
+        if os.path.exists(self.h5_file) and not self.overwrite:
             self.func_input = self.h5_file
             self.write_h5 = False
         else:
@@ -400,6 +400,7 @@ class FitpRFs(dataset.Dataset):
         super().__init__(
             self.func_input, 
             verbose=self.verbose, 
+            TR=self.TR, 
             **kwargs)
 
         # save h5 if needed
