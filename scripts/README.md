@@ -77,10 +77,10 @@ ses_trafo=${DIR_DATA_DERIV}/pycortex/sub-${subID}/transforms/sub-${subID}_from-s
 
 # submit to cluster or run locally with python
 # job="python"
-job="qsub -N line_${subID} -pe smp 5 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs"
+job="qsub -N sub-${subID}_ses-${sesID}_rec-nonordic_desc-ribbon -pe smp 1 -wd /data1/projects/MicroFunc/Jurjen/programs/project_repos/pRFline/logs"
 
 # please run with --qa first to potentially exclude runs based on the heuristics in the report
-python line_fit.py -s sub-007 -i 2 --lp --qa --verbose
+python line_fit.py -s sub-${sesID} -i ${sesID} --lp --qa --verbose
 ```
 Then, check the subject's html-file to check for heavy motion (e.g., coughing). Exclude those runs using:
 
@@ -97,7 +97,7 @@ ${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_
 We can also fit only on the ribbon voxels. In that case, we need to go to FSLeyes/ITK-Snap and open our CRUISE-segmentation image and the 'beam' image. This way, we can verify which voxels belong to the ribbon of interest. Here's where stuff gets more exotic. We can first estimate the pRFs over the average across the ribbon (which would imitate whole-brain fitting). We can then fix the x/y parameters, and estimate the parameters across the command. We can do that with the command:
 
 ```bash
-${job} line_fit.py -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --ribbon 356,363 --fix 0,1 --feed_avg --no_grid --exclude 1
+${job} line_fit.py -s sub-${subID} -b ${bids_dir} -o ${out_dir} -l ${log_dir} --ses_trafo ${ses_trafo} -i ${iters} --verbose --ribbon --fix 0,1 --feed_avg --lp --hrf
 
 # --exclude 1       = exclude run-1 > check the report html that was created earlier
 # --ribbon 356,363  = range of ribbon voxels
